@@ -1,0 +1,146 @@
+---
+title: "Commit Gate: Stamp-Enforced Pre-Commit Hook"
+sidebarTitle: "Commit Gate"
+description: "How the design-sync-gate.sh PreToolUse hook intercepts git commit in DTDD-adopted repos, consumes a single-use stamp, and blocks unreviewed commits."
+---
+
+The commit gate is a Claude Code `PreToolUse` hook that intercepts every `Bash` tool call before it executes. When it detects a `git commit` command in a DTDD-adopted repository, it checks for a single-use stamp file written by the design-sync agent. No stamp means no commit — the hook exits with code 2, prints exact dispatch instructions, and returns control to the model, which then runs the agent and retries. When a stamp is present the hook deletes it (consuming it) and allows the commit through. The gate's threat model is forgetfulness, not circumvention: it makes skipping the design review structurally impossible under normal use, not cryptographically impossible under adversarial use.
+
+## Configuration
+
+The hook is wired into Claude Code via `hooks.json` at the plugin root. The `PreToolUse` event fires before any `Bash` tool call, giving the gate a chance to inspect the command string before the shell ever sees it.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/design-sync-gate.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook receives the full tool input as JSON on stdin. The 30-second timeout is generous for a script that does no network I/O; it exists so a bug in the gate cannot silently stall every commit in the repo.
+
+## How It Works
+
+<Steps>
+  <Step title="Detect a git commit command">
+    The gate uses Python's `shlex.split` to tokenize the incoming command string, then splits the token stream on shell separators (`&&`, `||`, `;`, `|`, `&`) to isolate each sub-command. For each sub-command it checks whether the first token (after stripping path prefixes) is `git` and whether the first non-flag token after that is `commit`. Flags that consume a separate argument (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`) are skipped with their argument so they don't shadow the subcommand.
+
+    This means:
+    - `git commit -m "fix"` — **detected** ✓
+    - `git -C ./sub commit` — **detected** ✓
+    - `git -c user.name=x commit` — **detected** ✓
+    - `git status && git commit -m x` — **detected** ✓
+    - `echo "run git commit later"` — **not detected** (quoted text, not a token)
+    - `git log --oneline` — **not detected** (non-commit subcommand)
+
+    If `python3` is not available the gate exits 0 — fail-open — with a warning on stderr.
+  </Step>
+
+  <Step title="Check DTDD adoption scope">
+    The gate is installed globally in the Claude Code plugin, which means it fires for every project the plugin is active in. To avoid gating repos that have nothing to do with DTDD, the hook checks for the scaffold marker file created by `/dtdd-init`:
+
+    ```
+    <repo-root>/docs/templates/DESIGN.template.md
+    ```
+
+    If that file is absent, the hook exits 0 immediately. Installing the DTDD plugin does not gate any other repository on the machine.
+  </Step>
+
+  <Step title="Run the mechanical improvements-log check">
+    Before consulting the stamp, the gate performs one unconditional mechanical check that requires no judgment and no stamp. When the staged diff deletes an `### IMP-XXX` entry from the improvements log, the gate searches the rest of the staged tree for surviving references to that ID. If any are found it blocks the commit with a list of files that still cite the deleted entry.
+
+    This check runs on every commit attempt regardless of stamp state, because it is deterministic — there is either a dangling reference or there is not — and catching it does not require an independent design review. The improvements log path defaults to `docs/improvements/improvements-log.md` and can be overridden with `DTDD_IMPROVEMENTS_LOG`.
+  </Step>
+
+  <Step title="Consume the stamp or block">
+    The stamp file lives at `<git-dir>/.design-sync-stamp`. In a normal checkout `<git-dir>` is `<repo>/.git`; in a linked worktree it is the actual git directory resolved via `git rev-parse --absolute-git-dir`.
+
+    - **Stamp present:** the gate deletes the file and exits 0, admitting the commit. The deletion is the point — one stamp admits exactly one commit.
+    - **Stamp absent:** the gate exits 2 with a message telling the model to dispatch the design-sync agent (subagent type `design-sync`) in an independent context, then retry the commit. The stamp's only legitimate source is that agent finishing cleanly.
+  </Step>
+</Steps>
+
+## Fail-Open vs Fail-Closed
+
+The gate draws a deliberate asymmetry between internal tooling failures and a genuinely absent stamp.
+
+| Condition | Exit code | Effect |
+|---|---|---|
+| `python3` not found | `0` | Allow — warns on stderr |
+| Git directory unresolvable | `0` | Allow — warns on stderr |
+| Stamp absent (normal case) | `2` | Block — prints dispatch instructions |
+| Stamp present | `0` | Allow — stamp consumed |
+
+Internal errors fail open so a broken hook cannot silently block every commit in the repository. An absent stamp fails closed because the only reason a stamp would be absent is that the design-sync check never ran — and that is exactly the failure the gate exists to prevent.
+
+## The Stamp Lifecycle
+
+The stamp is a single-use token that proves the design-sync agent completed a clean run.
+
+```
+design-sync agent runs →
+  verifies / fixes DESIGN.md files →
+    writes <git-dir>/.design-sync-stamp   ← only the agent may create this
+
+model retries git commit →
+  gate detects stamp →
+    deletes stamp  ← consumed; one pass spent →
+      commit proceeds
+
+next commit requires a fresh design-sync run
+```
+
+Any write to the repository after the stamp is created — an applied review finding, a last manual tweak — invalidates the guarantee the stamp represents, even though the file still exists. The gate does not detect this staleness mechanically (see [Roadmap](/reference/roadmap) for the planned hardening); re-running the design-sync agent after any post-stamp edit is discipline, not a gate.
+
+## Running the Self-Test
+
+The gate ships with a runnable self-test that exercises all of its branches against scratch git repos in a temporary directory.
+
+```bash
+bash hooks/gate-test.sh
+```
+
+The test covers:
+
+- **Quoted mention passthrough** — `echo 'run git commit later'` in a DTDD repo exits 0
+- **`git -C <dir> commit` detection** — exits 2 (blocked, no stamp)
+- **Non-DTDD repo passthrough** — `git commit` in a plain repo exits 0 (scope check)
+- **Stamp block** — `git commit` without stamp exits 2
+- **Stamp pass** — `git commit` with stamp exits 0
+- **Stamp consumed** — stamp file is absent after the passing run
+- **Compound command** — `git status && git commit -m x` exits 2
+- **`git -c k=v commit` detection** — exits 2 (no stamp)
+- **Non-commit git command** — `git log --oneline` exits 0
+
+All ten checks must pass for the test to exit 0.
+
+<Warning>
+  **Do not manually touch the stamp file.** The stamp's value comes entirely from the discipline that only the design-sync agent creates it. Touching `.design-sync-stamp` by hand is indistinguishable from a real pass at the gate level — the gate's threat model is forgetfulness, not circumvention, and no file-existence check can stop a session determined to bypass it. A session that would forge the stamp would also lie in a review report, and no gate fixes that.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Design-Sync Agent" href="/reference/design-sync-agent">
+    The independent agent that creates the stamp — what it checks, fixes, and surfaces.
+  </Card>
+  <Card title="Review Gates" href="/workflow/review-gates">
+    The stamp/consume pattern, non-overlapping lenses, and the compulsory vs on-demand gate model.
+  </Card>
+  <Card title="Quickstart" href="/quickstart">
+    Install the plugin and run the gate on your first repository.
+  </Card>
+  <Card title="dtdd-init Command" href="/reference/dtdd-init">
+    The scaffold command that creates the marker file activating the gate scope.
+  </Card>
+</CardGroup>

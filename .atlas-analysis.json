@@ -1,0 +1,109 @@
+{
+  "projectType": "framework",
+  "projectName": "DTDD",
+  "projectDescription": "Design-Test-Driven Development (DTDD) is a methodology and installable plugin for AI coding agents that keeps a repository's design docs permanently in sync with its code — enforced by a commit gate, driven by a three-tier orchestration model, and structured around one component at a time.",
+  "theme": "aspen",
+  "primaryColor": "#2d5a3d",
+  "lightColor": "#7bc47f",
+  "darkColor": "#1e3a5f",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/methodology",
+              "concepts/fact-model",
+              "concepts/design-docs",
+              "concepts/repo-docs",
+              "concepts/the-logs"
+            ]
+          },
+          {
+            "group": "The Workflow",
+            "pages": [
+              "workflow/the-loop",
+              "workflow/orchestration",
+              "workflow/principal-orchestrator",
+              "workflow/review-gates",
+              "workflow/testing",
+              "workflow/runbooks"
+            ]
+          },
+          {
+            "group": "Example",
+            "pages": [
+              "example/orderflow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Commands & Skills",
+            "pages": [
+              "reference/dtdd-init",
+              "reference/dtdd-skill",
+              "reference/dtdd-goal"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "reference/component-agent",
+              "reference/design-sync-agent"
+            ]
+          },
+          {
+            "group": "Hooks & Templates",
+            "pages": [
+              "reference/commit-gate",
+              "reference/templates"
+            ]
+          },
+          {
+            "group": "Roadmap",
+            "pages": [
+              "reference/roadmap"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Maintained present-state DESIGN.md per component — read before every change, written after every change",
+    "Three-tier orchestration model: Principal Orchestrator → DTDD Orchestrator → Component Workers",
+    "Stamp-gated pre-commit hook blocks commits until an independent design-sync review has run",
+    "Design-sync agent runs in fresh context to verify doc↔code fidelity without author bias",
+    "/dtdd-init scaffolds the full methodology into any repo in one command, non-destructively",
+    "/dtdd-goal drives a multi-stage spec to completion, absorbing planning gates and always bringing commit gates to the human",
+    "Two-wave orchestration: read-only plan wave then execute wave, with seam detection from design docs only",
+    "Decisions log (permanent) and improvements log (transient) keep history separate from present-state docs",
+    "Design-derived tests: every stated invariant and pinned contract clause becomes at least one test case",
+    "Worked example (Orderflow) shows the full documentation structure for a realistic multi-service repo"
+  ],
+  "publicApiSurface": [
+    "/dtdd-init — scaffold DTDD into any repo (idempotent, non-destructive)",
+    "/dtdd <change> — run one design-driven repo-wide change with two human gates",
+    "/dtdd-goal <spec> — Principal Orchestrator: decompose a spec into stages and drive it to completion",
+    "dtdd-component agent — per-component worker running the 8-step DTDD loop (plan or execute mode)",
+    "design-sync agent — independent reviewer that syncs DESIGN.md files with staged code and creates the commit stamp",
+    "design-sync-gate.sh — PreToolUse hook that blocks git commit without a design-sync stamp",
+    "gate-test.sh — self-test for the commit gate hook",
+    "DESIGN.template.md — 12-section fixed template for every component design document",
+    "decisions-log.md template — permanent append-only log of confirmed decisions",
+    "improvements-log.md template — transient tracker of known-imperfect implementation areas"
+  ]
+}

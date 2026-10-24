@@ -1,0 +1,161 @@
+---
+title: "DTDD Templates: DESIGN.md, Decisions, and Improvements"
+sidebarTitle: "Templates"
+description: "The three templates installed by /dtdd-init: the 12-section DESIGN.md grammar, the append-only decisions log, and the transient improvements tracker."
+---
+
+DTDD ships three document templates, each installed into a target repository by `/dtdd-init`. Together they form the complete document layer of the methodology: the component design doc template captures present-state truth for each component; the decisions log records the permanent, append-only history of architectural choices; and the improvements log tracks transient findings that need fixing but do not yet belong in a design doc. Every template has a defined structure, scope, and maintenance discipline — the design-sync agent enforces the design doc template mechanically on every commit.
+
+---
+
+## DESIGN.md Template
+
+The `DESIGN.md` template defines the fixed 12-section grammar that every component design document follows. All twelve sections appear in every `DESIGN.md`, in this order, even when a section is not applicable — a non-applicable section keeps its heading with a single `None — <reason>.` body line. This convention makes the structure predictable for both human readers and the design-sync agent: an empty section is a visible, deliberate statement, not a silent omission.
+
+### The Twelve Sections
+
+1. **Header preamble** — The unnamed block immediately under the H1 title. Contains the component name, its purpose in one sentence, the entry-point files to start reading in order, and pointers to any document that must be read first.
+
+2. **Why This Exists** — The problem this component solves: what breaks, is impossible, or falls through the cracks without it. Stated in the present tense as a need that exists today, not as a migration story.
+
+3. **What This Does** — Responsibilities and contracts: inputs (message shapes, request bodies, function arguments), outputs (responses, artefacts, rows, events), and the public API or endpoint table with type shapes and file layouts.
+
+4. **How It Works** — The mechanism walkthrough a newcomer reads first: a numbered flow from trigger to completion. Sub-mechanisms (concurrency model, retry model, evaluation semantics) are subsections. A Mermaid flowchart may lead this section when the flow has branches a list can't show at a glance.
+
+5. **Boundaries** — What each internal layer owns and must NOT know about (the testability contract). Who consumes this component, what it depends on, and which identities and credentials it runs under.
+
+6. **Rules & Invariants** — Everything that must remain true, each written as mechanism → rule → why. Ordering rules, conflict rules, idempotency guarantees, delivery contracts, naming conventions. The section reviewers check a change against.
+
+7. **Key Design Decisions** — Numbered entries. Each states the decision (in the present — what the design *is*), the rationale, and the alternative that lost. No dates, no "was X now Y" — the dated record lives in the decisions log.
+
+8. **Deliberately Left Out** — What was considered and not built, with the reason. Protects future readers from re-proposing rejected designs.
+
+9. **Configuration** — Environment variables and tunable values: name, purpose, default, and where it comes from (`.env`, `.env.local`, deploy script).
+
+10. **Open Questions** — Unsettled items only. Settled questions move to Key Design Decisions.
+
+11. **Next Steps** — Ordered, near-term work for this component.
+
+12. **Related Documents** — Pointers to the architecture doc, schema doc, sibling `DESIGN.md`s, runbooks, and the decisions log — with one phrase saying what each contains.
+
+### Writing Standard
+
+The document must be self-contained. Explain what a mechanism *is* and how it works before stating rules about it, then give the reason — the failure the rule prevents. The pattern is always **mechanism → rule → why**. No compressed jargon without its underlying explanation.
+
+The document describes present state only. Changelog verbs — `replaced`, `removed`, `no longer`, `previously`, `formerly`, `migrated from`, `deprecated`, `was X now Y` — are forbidden here; that record lives in the decisions log. Describe the mechanism in the present tense: not "the service **is replaced by** a queue-based worker" but "the service processes work items via a queue-based worker."
+
+### The Explicit-Absence Convention
+
+When a section has nothing to say, it does not disappear — it states its emptiness explicitly so a reader knows it was considered:
+
+```markdown
+None — no runtime configuration.
+```
+
+This pattern applies to Configuration, Open Questions, Next Steps, Deliberately Left Out, and any other section where nothing currently applies. The heading is always present; only the body changes.
+
+### Example: Rules & Invariants
+
+The following is the Rules & Invariants section from the Orderflow `services/payments` DESIGN.md — three invariants, each written as mechanism → rule → why:
+
+```markdown
+## Rules & Invariants
+
+1. **One charge per order.** The `charges` table has `orderId` as its primary key,
+   and every write path uses an upsert keyed on `orderId` rather than an insert.
+   Rule: a given order can occupy at most one row, ever. Why: the queue's
+   at-least-once delivery guarantees the same `charge-requested` message can arrive
+   twice; without a single row per order the second delivery would create a second
+   charge and the customer would pay twice.
+
+2. **The provider idempotency key is the order ID, not a per-attempt identifier.**
+   Rule: every provider call for a given order — the first attempt and every retry —
+   passes the same key. Why: the provider's own idempotency handling is the last
+   line of defense if the worker's own state got out of sync (for example, a crash
+   between "provider call succeeded" and "row written"); reusing the key means even a
+   lost acknowledgment resolves to one real-world charge, not two.
+
+3. **A row in `pending` is never treated as failed on retry exhaustion.** Rule:
+   exhausting retries moves the message to the dead-letter queue and leaves the row
+   as `pending`; it does not overwrite the row to `failed`. Why: "no response from
+   the provider" is not the same fact as "the provider declined the charge" — the
+   charge may have gone through on the provider's side even though the worker never
+   learned about it.
+```
+
+---
+
+## Decisions Log Template
+
+The decisions log is a permanent, append-only record of confirmed decisions — architectural, product, or process. Unlike a `DESIGN.md`, which is present-state only, a decisions-log entry is explicitly allowed to say "was X, now Y" and carry a date, because recording that a change happened and why is exactly this file's job. Entries are never edited to erase what was decided; only appended to when a later decision supersedes an earlier one.
+
+### Entry Format
+
+```markdown
+## <Area Name>
+
+**<Decision title stated in the present>**
+One paragraph covering: what was decided, stated plainly; the rationale — why this
+and not something else; and the alternative(s) considered and rejected, with the
+reason they lost (a single clause is enough when the reason is obvious).
+
+**YYYY-MM-DD — <Title of a superseding decision>**
+This supersedes the earlier decision that … [body as above]
+```
+
+### Key Rules
+
+- **No numeric IDs.** Decisions are identified by their bold title line. Nothing elsewhere in the repository references "decision #14" — a `DESIGN.md` describes the current design directly, and this log is read start-to-finish or grepped by title.
+- **Grouped by area.** Entries live under a level-2 heading naming the area (e.g. `## Payments Service`, `## Data Model`). Later decisions in the same area are appended under the existing heading in the order they were made.
+- **Date prefix only when superseding.** A first-time decision with no predecessor carries no date. When an entry supersedes an earlier one, prefix the title with `YYYY-MM-DD —` and name the earlier decision inline in the prose.
+- **Never cites IMP-XXX.** A permanent record must not point at something that can later be deleted. If context from the improvements log matters to a decision, that context is restated in the decision's own words.
+
+---
+
+## Improvements Log Template
+
+The improvements log is a transient tracker for findings about existing implementation: drift, duplication, missing edge cases, code organisation, tooling gaps. It is not a feature backlog and not a design doc. Entries are deleted from the file when they are resolved or rejected — there is no "resolved" status, and a resolved entry does not stay.
+
+### Scope
+
+| Belongs here | Does NOT belong here |
+|---|---|
+| Existing code that should be cleaner, safer, more cohesive | New functionality to build |
+| Bugs and edge cases the current implementation misses | Architectural design decisions |
+| Refactors, dedup, structured logging, test gaps | Roadmap features |
+| Path or convention mismatches with documented design | Anything tracked in a `DESIGN.md` or the decisions log |
+
+Features go to a future-features file. Design work goes to the component's `DESIGN.md`. Decisions made go to the decisions log.
+
+### Entry Format
+
+```markdown
+### IMP-NNN: <one-line summary>
+- **Severity:** critical | high | medium | low
+- **Status:** open | in-progress
+- **Area:** <path or component the finding is about>
+- <one or more paragraphs: what the issue is, why it matters, and a suggested fix>
+```
+
+### IMP-XXX ID Scheme
+
+IDs are **monotonic and never reused**. The `Next ID` counter at the top of the file — not the highest surviving entry number — is the authoritative source for the next ID. When an entry is deleted on resolution, its ID retires permanently; gaps in the sequence are expected and intentional. Referencing an IMP-XXX ID in a commit message (e.g. `fix(payments): handle missing currency — IMP-006`) creates a searchable link from code history to the finding that motivated the change.
+
+<Tip>
+  The Orderflow example project demonstrates all three templates in a realistic multi-component repository. See the payments, orders, fulfillment, and web DESIGN.md files alongside the architecture doc to understand how the templates work together at scale: [Orderflow Example](/example/orderflow).
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Design Docs" href="/concepts/design-docs">
+    The present-state rules, explicit-absence convention, and writing discipline the design-sync agent enforces.
+  </Card>
+  <Card title="The Logs" href="/concepts/the-logs">
+    How the decisions log and improvements log complement each other and the DESIGN.md files.
+  </Card>
+  <Card title="dtdd-init Command" href="/reference/dtdd-init">
+    The scaffold command that installs these templates into a target repository.
+  </Card>
+  <Card title="Orderflow Example" href="/example/orderflow">
+    A complete worked example showing all three templates in a four-component checkout system.
+  </Card>
+</CardGroup>

@@ -1,0 +1,164 @@
+---
+title: "The DTDD Methodology: Thirteen Ideologies Explained"
+sidebarTitle: "Methodology"
+description: "How Design-Test-Driven Development defines the Fact model, the thirteen ideologies that follow from it, and what each piece of the framework carries."
+---
+
+Design-Test-Driven Development is built on a single claim: a repository maintains a living present-state truth — its Fact — and every change either reads that Fact or deliberately evolves it. This page explains the problem that claim solves, the thirteen ideologies that give the methodology its discipline, and how each piece of the framework maps onto those ideologies.
+
+## The Problem
+
+AI coding agents are good at executing against context and bad at knowing which context is true. "Context engineering" answers this by assembling good context per prompt — gather the right files, write a good brief, hand it over. That works once. It does not survive the hundredth change, because hand-assembled context has no maintenance story; nothing forces yesterday's brief to still be true today.
+
+DTDD makes a stronger claim: **the repository maintains a single living Fact — the present-state truth of what it currently is — and all work is either reading that Fact or evolving it deliberately.** Context stops being something you assemble per request and becomes a *maintained artifact* with strict rules about what belongs in it (present-state facts) and what is tracked beside it (decisions, improvements, open questions).
+
+Everything in the framework — the worker loop, the orchestration tiers, the gates, the templates, the logs — exists to keep that Fact honest while agents change code at speed.
+
+## The Thirteen Ideologies
+
+Each ideology is stated as **mechanism → rule → why**. Taken together they form the meta-layer the whole practice teaches; the guide documents each take one ideology deeper.
+
+<AccordionGroup>
+  <Accordion title="1. The Fact Model">
+    **Mechanism:** A living present-state truth — design docs plus code — held in two tiers: the Component Fact (each component's `DESIGN.md`) and the Repo Fact (architecture, data model, business flows).
+
+    **Rule:** Every task starts by reading the relevant Fact tier and ends by leaving it true.
+
+    **Why:** Agents execute against what they read. A maintained Fact makes what they read reliable; an unmaintained one is just documentation, and documentation rots.
+  </Accordion>
+
+  <Accordion title="2. Fact ≠ Narrative">
+    **Mechanism:** Present-state documents (the Fact) are kept strictly separate from the logs (the narrative of change).
+
+    **Rule:** Design docs never contain history — no changelog verbs, no dates, no "previously" or "now supports." The logs are the *only* place history lives.
+
+    **Why:** A document that accretes history stops describing the system and starts describing its own past. Separating the two is what stops docs from rotting.
+  </Accordion>
+
+  <Accordion title="3. Lifecycle-Aware Dependency Direction">
+    **Mechanism:** Artifacts have different lifespans. A `DESIGN.md` is permanent; an improvements-log entry, a run ID, or a ticket is transient — expected to be deleted by design.
+
+    **Rule:** A permanent artifact never points at a transient one. The decisions-log never cites an improvements-log entry; a `DESIGN.md` sentence must still read correctly if the improvement it mentions is later deleted; no run IDs, seam IDs, or ticket IDs appear in code or docs.
+
+    **Why:** Transient artifacts get deleted by design. Any permanent artifact that leans on one is guaranteed to dangle.
+  </Accordion>
+
+  <Accordion title="4. Docs Are the Bounded Context">
+    **Mechanism:** Design documents — not code — are the agent's substrate and the seam-detection surface.
+
+    **Rule:** The orchestrator is *forbidden* from reading a component's internals. When it needs to know something about a component, it asks that component's agent in plan mode.
+
+    **Why:** Reading internals invites the orchestrator to plan against implementation details that are free to change, and it silently bypasses the Fact. If the answer isn't in the design doc, the correct move is to fix the design doc, not to peek.
+  </Accordion>
+
+  <Accordion title="5. Reasoning-Actor Ownership">
+    **Mechanism:** The actor that does the reasoning at a tier is the actor qualified to write that tier's document.
+
+    **Rule:** A canonical doc write is never delegated to a cheaper model. The worker that changed a component writes its `DESIGN.md`; the orchestrator that reasoned about the cross-component change writes the shared docs.
+
+    **Why:** The writer of a canonical document needs the full reasoning in context. A summarizer working from someone else's diff produces plausible text, not truth.
+  </Accordion>
+
+  <Accordion title="6. Gates as Single-Use Stamps">
+    **Mechanism:** "Prove the check ran" is enforced structurally, not by trust. An upstream process creates a one-use token only it can create; a downstream hook consumes it on pass and blocks without it.
+
+    **Rule:** The design-sync gate stamp is generated by the independent review agent and consumed exactly once by the pre-commit hook. No stamp → no commit.
+
+    **Why:** An instruction ("run the check before committing") can be forgotten or faked. A consumed stamp cannot be reused, and a missing stamp blocks mechanically.
+  </Accordion>
+
+  <Accordion title="7. Non-Overlapping Review Lenses">
+    **Mechanism:** Many narrow reviewers, each declaring what it does *not* check, beat one fuzzy reviewer.
+
+    **Rule:** Every review lens states its scope and its explicit non-scope. Lenses are composed, not merged.
+
+    **Why:** A reviewer asked to check everything checks nothing in particular — and two overlapping reviewers each assume the other caught it.
+  </Accordion>
+
+  <Accordion title="8. Explicit Absence">
+    **Mechanism:** Absence is a statement, never an omission.
+
+    **Rule:** Non-applicable template sections say `None — <reason>.`; a skipped test announces exactly what was not exercised; a rejected design is recorded as rejected.
+
+    **Why:** A blank is ambiguous — it reads as either "not applicable" or "nobody looked." Making absence explicit removes the ambiguity that agents (and humans) otherwise paper over.
+  </Accordion>
+
+  <Accordion title="9. Three Distinct Checks">
+    **Mechanism:** Typecheck ≠ build ≠ run. Each check catches a failure class the previous one is structurally blind to.
+
+    **Rule:** A passing typecheck does not prove the build emits artifacts; a passing build does not prove the entrypoint boots. Verification names all three as separate, named gates.
+
+    **Why:** Collapsing them into "it compiles" is how "done" ships broken. All three must be exercised and recorded explicitly.
+  </Accordion>
+
+  <Accordion title="10. One Reusable Template Grammar">
+    **Mechanism:** A fixed section template is a grammar, not a one-off. The same structural shape governs any new document type added to the repo.
+
+    **Rule:** Fixed headings, fixed order, explicit-absence sections — rather than a bespoke structure per document.
+
+    **Why:** Agents parse a known shape reliably and humans diff a known shape cheaply. Every new bespoke structure is a new parser everyone must write.
+  </Accordion>
+
+  <Accordion title="11. Plan-Then-Execute with Tier-Aware Gates">
+    **Mechanism:** A read-only assessment wave auto-runs (it writes nothing); the writing wave runs only after approval. Routine planning is absorbed by the tier that owns the goal; only a break in assumptions, decisions, or design escalates to a human.
+
+    **Rule:** Workers *failback* with a suggested fix rather than improvise. The commit gate is always human.
+
+    **Why:** Pausing a human for routine plans trains them to rubber-stamp; never pausing them surrenders the one decision that must stay human. Tier-aware gating spends human attention only where it changes the outcome.
+  </Accordion>
+
+  <Accordion title="12. Independent-Context Verification">
+    **Mechanism:** The checker must never be the author. The design-sync review runs in a separate context from the session that authored the diff — always.
+
+    **Rule:** The authoring session must not perform its own design-sync check; an independent agent with a fresh context reviews docs-to-code alignment.
+
+    **Why:** The authoring session is biased toward its own work by construction — it reads its diff as what it *meant*, not as what it *says*. A fresh context has no stake in the diff.
+  </Accordion>
+
+  <Accordion title="13. Self-Similar Orchestration">
+    **Mechanism:** Conductors compose. Each tier stays in its own loop, spawns the tier below, and holds its own gates. The pattern recurs at three levels: `Principal : DTDD-runs :: DTDD : component-workers`.
+
+    **Rule:** One orchestration grammar learned once applies at every scale; a bespoke control scheme per tier multiplies the surface a human must audit.
+
+    **Why:** Self-similar structure means the same reasoning that explains how a component worker operates also explains how the principal orchestrator operates — just at a different scope.
+  </Accordion>
+</AccordionGroup>
+
+## How the Pieces Map to the Ideologies
+
+Each guide document carries a specific subset of the ideologies. The table below shows where each ideology lives in the framework.
+
+| Piece | Ideologies Carried |
+|---|---|
+| Worker loop + orchestration | 1, 4, 5, 11 |
+| Component `DESIGN.md` discipline | 1, 2, 8, 10 |
+| Repo Fact tier (architecture, data model, flows) | 1, 4, 5 |
+| Decisions-log vs improvements-log | 2, 3 |
+| Review lenses + stamp/consume gate | 6, 7, 12 |
+| Three checks + design-derived tests | 8, 9 |
+| Executable runbook scenarios | 8, 9 |
+| Principal Orchestrator (top tier) | 11, 13 |
+
+## What DTDD Is Not
+
+- **Not a prompt library.** The prompts exist, but they are the smallest part. The methodology is the maintained Fact and the gates around it.
+- **Not a replacement for your agent harness.** DTDD layers a discipline on top of whatever harness you already use; it does not replace it.
+- **Not documentation-for-its-own-sake.** Every document is load-bearing: something reads it (an agent), something enforces it (a gate), or something derives from it (tests). A document nothing consumes does not belong in the Fact.
+- **Not itself a system of components.** This repository *is* the methodology — a guide plus a thin plugin. Those artifacts (DESIGN.md, architecture doc, logs) belong to the repos that *adopt* DTDD, not to DTDD itself.
+
+## Related Concepts
+
+<CardGroup cols={2}>
+  <Card title="The Fact Model" icon="database" href="/concepts/fact-model">
+    Two-tier present-state truth: Component Fact and Repo Fact, and the two properties that make the Fact usable by agents.
+  </Card>
+  <Card title="The Worker Loop" icon="arrow-path" href="/workflow/the-loop">
+    The read-first/write-last discipline that keeps each component's design doc aligned with its code on every change.
+  </Card>
+  <Card title="Review Gates" icon="shield-check" href="/workflow/review-gates">
+    Stamp-gated, independent-context verification — how the pre-commit hook structurally enforces design-sync.
+  </Card>
+  <Card title="Testing Discipline" icon="flask" href="/workflow/testing">
+    Three distinct checks (typecheck, build, run) and how tests are derived from design docs rather than from code.
+  </Card>
+</CardGroup>

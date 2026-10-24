@@ -1,0 +1,139 @@
+---
+title: "/dtdd-goal: Drive a Multi-Stage Spec to Completion"
+sidebarTitle: "/dtdd-goal"
+description: "Principal Orchestrator command — decomposes a spec into stages, drives /dtdd per stage, absorbs planning gates, and surfaces only commit gates to you."
+---
+
+`/dtdd-goal` is the top-tier command in DTDD's three-tier model. Where `/dtdd` handles one coherent change, `/dtdd-goal` takes an entire development spec — a goal that spans multiple stages of implementation — and drives it all the way to completion. It absorbs the routine planning gates that each `/dtdd` stage would otherwise surface, re-scopes between stages as work lands, and brings exactly two things back to you per stage: the commit gate, and any question that would invalidate the goal itself. Everything else, it answers from the spec it holds.
+
+## Usage
+
+```text
+/dtdd-goal <spec>
+```
+
+The spec can be stated inline or given as a path to a file:
+
+```text
+/dtdd-goal order cancellation, end to end — cancel from the page; payments must never charge a cancelled order
+/dtdd-goal tmp/specs/auth-redesign.md
+```
+
+`/dtdd-goal` is not a spawned agent — it is the session itself. It holds the multi-turn dialogue and the cross-stage gates for the whole program arc. A subagent's context ends when it returns; the goal does not end until every stage does.
+
+## What makes it different from `/dtdd`
+
+| Capability | `/dtdd` | `/dtdd-goal` |
+|---|---|---|
+| Scope | One coherent change | A full spec across multiple stages |
+| Gates | Two (planning + commit) | One top-level gate, then one commit gate per stage |
+| Planning gate | Always stops for human | Absorbed by the Principal for routine stage plans |
+| Commit gate | Always human | Always human — never absorbed |
+| Cross-stage context | Not held | Held for the entire run |
+| Re-scoping | N/A | After each stage, re-reads remaining stages against what landed |
+| Engine | Is the engine | Invokes `/dtdd` as the engine per implementation stage |
+
+## The loop
+
+`/dtdd-goal` runs a six-phase loop for the full goal.
+
+<Steps>
+  <Step title="Establish the goal">
+    Read the spec in full and treat it as the comprehensive goal — the Fact of what must be true when the work is done. Restate it back in one or two sentences and confirm it is correct before decomposing anything. A misread here is cheapest to catch now.
+  </Step>
+
+  <Step title="Decompose into stages">
+    Break the goal into the smallest set of stages that achieves it — each stage one coherent, independently verifiable unit of work. For each stage, name its engine:
+
+    - **Implementation stage** (changes code, one or more components) → runs via one `/dtdd` invocation, passing the stage goal plus any context prior stages pinned.
+    - **Design stage** (produces or refines a doc, no code) → runs a design pass: brainstorm the approach, then write the doc. No implementation engine touches this stage.
+
+    Dependencies between stages are identified and marked; independent stages are eligible to run in parallel.
+  </Step>
+
+  <Step title="Present the stage plan — top-level gate (human)">
+    Present the full decomposition: each stage's goal, its engine, the order, and the dependencies. This is the one upfront human gate for the whole program. Nothing runs before you approve. If you change scope, the plan is amended and re-presented before any stage starts.
+  </Step>
+
+  <Step title="Drive each stage">
+    For each approved stage, run its engine. For an implementation stage, `/dtdd-goal` invokes `/dtdd` with the stage goal and any pinned context from prior stages. At `/dtdd`'s planning gate, `/dtdd-goal` reviews the candidates, seams, pinned contracts, and dispatch order itself — it already holds the goal and did the decomposition, so it is the qualified reviewer of a routine stage plan — and approves on its own authority. That gate never waits on a human while the Principal is driving it.
+
+    Every break in assumptions, decisions, or design that surfaces while driving a stage is sorted into exactly one of two classes:
+
+    - **Correctable within the goal's intent** — resolvable without contradicting any recorded decision or changing what the goal means. The fix is proposed, the stage proceeds, and the finding surfaces at the stage's commit gate for your sign-off.
+    - **Goal-invalidating** — contradicts a recorded decision, or undermines the premise the remaining stages depend on. The Principal pauses and asks before dispatching another stage, because the stages that follow may rest on a false premise.
+  </Step>
+
+  <Step title="Review the stage, then re-scope">
+    Before a stage's commit gate reaches you, an independent fresh-context review agent runs over exactly that stage's diff — a correctness lens the fan-in does not provide (fan-in verifies build, tests, and design-sync; it does not catch a bug the author never imagined). Confirmed findings are applied and the diff is re-run before the commit gate is presented.
+
+    After a stage lands, the remaining stages are re-read against what actually happened. A stage rarely finishes exactly as planned. If an outcome reshapes a later stage, the plan is updated; if the change is material, the affected scope is re-presented at the top-level gate.
+  </Step>
+
+  <Step title="Converge">
+    When every stage is done and the goal's Fact is true, a summary is presented: what each stage delivered, what you still own (commits, environment values, publishing), and any items that were deferred.
+  </Step>
+</Steps>
+
+## Worked example
+
+The following exchange shows a two-stage goal from the README — an order cancellation feature spanning a backend endpoint and a frontend cancel button:
+
+```text
+you:       /dtdd-goal order cancellation, end to end — cancel from the page;
+           payments must never charge a cancelled order
+
+principal: goal restated; decomposed into 2 stages (backend endpoint + skip,
+           then the cancel button against it). TOP-LEVEL GATE — approve?
+you:       approve
+
+principal: drives stage 1 via /dtdd; absorbs its planning gate (it holds the
+           goal and did the decomposition)
+  orchestrator: execute wave (producer first) — workers test-first, implement
+     worker: failback — "skipped charges: publish a settled event, or stay silent?"
+     orchestrator: answers from the stage plan (stay silent), re-dispatches
+  orchestrator: fan-in — build, tests, boot; decisions-log entry; design-sync
+                reviews docs↔code and stamps
+principal: COMMIT GATE — diff + results + anything it adjudicated. Commit?
+you:       commit        ← the gate consumes the stamp; stage 1 lands
+
+principal: re-scopes stage 2 against what landed, drives it the same way
+principal: COMMIT GATE — stage 2. Commit?
+you:       commit        ← goal converged; summary of what each stage delivered
+```
+
+The worker's failback never reached the human — the orchestrator answered it from the stage plan. The top-level gate was paid once, up front. The commit gates reached the human each time, as they always do.
+
+## Escalation classes
+
+Every question or break that surfaces during a run is resolved at the right tier:
+
+<Accordion title="Correctable within the goal's intent">
+  A break is correctable when resolving it does not contradict any recorded decision and does not change what the goal means. The Principal proposes the fix, the stage continues, and the fix is surfaced at the stage's commit gate. Examples: a worker reports two valid orderings for a new event and the goal implies one clearly; a field name in the pinned contract needs a minor refinement that no consumer would notice.
+</Accordion>
+
+<Accordion title="Goal-invalidating">
+  A break is goal-invalidating when it contradicts a recorded decision or undermines the premise on which the remaining stages depend. The Principal pauses immediately and asks — before dispatching the next stage — because continuing on a false premise means the remaining stages may build the wrong thing. Examples: the backend endpoint turns out to require a schema change that the spec explicitly ruled out; a discovered constraint means "payments must never charge a cancelled order" cannot be enforced within the components the spec names.
+</Accordion>
+
+## Constraints
+
+- `/dtdd-goal` is the session, not an engine. Reasoning lives here; this command is a discipline over existing pieces — not new machinery.
+- Commit authority never leaves the human, at any stage.
+- A goal-invalidating break is never resolved silently; it surfaces, at worst by the stage's commit gate.
+- The stage list is the working sketch; the comprehensive goal is the invariant. Prefer the fewest stages that achieve it.
+
+<CardGroup cols={2}>
+  <Card title="Principal Orchestrator" icon="crown" href="/workflow/principal-orchestrator">
+    The methodology behind the top-tier session and how it holds cross-stage context.
+  </Card>
+  <Card title="Orchestration" icon="diagram-project" href="/workflow/orchestration">
+    How the three tiers — Principal, orchestrator, and workers — divide responsibility.
+  </Card>
+  <Card title="/dtdd skill" icon="terminal" href="/reference/dtdd-skill">
+    The per-stage engine /dtdd-goal invokes for each implementation stage.
+  </Card>
+  <Card title="Component Agent" icon="robot" href="/reference/component-agent">
+    The per-component worker dispatched by the /dtdd orchestrator each stage.
+  </Card>
+</CardGroup>

@@ -1,0 +1,87 @@
+---
+title: "Repo Fact: Cross-Component Truth in DTDD"
+sidebarTitle: "Repo Docs"
+description: "The Repo Fact tier holds everything that spans more than one component — architecture, shared schemas, business flows, and shared conventions — stated once and owned by the orchestrator."
+---
+
+A component's `DESIGN.md` describes what that one unit does in isolation. It cannot describe how a payments service hands data to an email sender, what a shared message schema looks like across every consumer, or how a request flows end-to-end through five services. That cross-component truth is the **Repo Fact** — the second tier of the Fact model, sitting above every individual Component Fact. It exists so that facts which would otherwise be copied — and left to drift — across multiple components have exactly one home.
+
+## What Lives at This Tier
+
+The Repo Fact holds anything that spans more than one component and would have to be duplicated, or left inconsistent, if each component tried to state its own copy.
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project">
+    How components fit together, what calls what, and why the system is shaped the way it is. No component's `DESIGN.md` can narrate this on its own.
+  </Card>
+  <Card title="Shared Data Model" icon="database">
+    A schema, message format, or data contract that more than one component reads or writes, stated once in a shared location rather than re-described per consumer.
+  </Card>
+  <Card title="Business Flows" icon="arrow-right-arrow-left">
+    End-to-end paths through the system — a request, a job, an event — whose meaning only exists at the point where components hand off to each other.
+  </Card>
+  <Card title="Shared Conventions" icon="list-check">
+    A testing strategy, a naming scheme, or a cross-cutting policy that every component follows but that belongs to none of them individually.
+  </Card>
+</CardGroup>
+
+## The Placement Rule
+
+**If a fact is true of exactly one component, it lives in that component's `DESIGN.md`. If it is true across components, or is only meaningful at the boundary between them, it lives in the Repo Fact.**
+
+A cross-component fact stated redundantly inside two or three components' docs will drift the moment only one of those docs gets updated. The Repo Fact tier exists so that fact has exactly one home, and updating it updates it everywhere it is read from.
+
+Like a component `DESIGN.md`, the Repo Fact is **present-state only** — no changelog verbs, no dates, no narrating how the architecture evolved. The reasoning behind a cross-cutting decision is recorded in the decisions log, not narrated inline inside an architecture doc.
+
+## Reading Priority
+
+Docs are read before code, and in a fixed order. Each tier answers a narrower question than the one before it.
+
+| Priority | Source | When to read it |
+|---|---|---|
+| 1 | **Component `DESIGN.md`** | Always, before touching anything inside that component. It is the primary context for that unit and the only place its internal contract is stated. |
+| 2 | **Repo Fact** (architecture, shared data model, business flows) | Before any suggestion or change that crosses component boundaries, or before touching a shared schema more than one component depends on. |
+| 3 | **Other supporting docs** | Anything the `DESIGN.md` or the Repo Fact explicitly points to — a deeper schema doc, a runbook, a decisions-log entry. Read as referenced, not speculatively. |
+| 4 | **Code** | Read *only* to verify that the implementation still matches what the docs claim. Never read as the source of design intent. |
+
+Code answers "what does this do right now" but not "what is this supposed to do" or "what was considered and rejected." An agent that derives intent from code alone will faithfully reproduce whatever the code currently does — including its bugs and accidents — because code cannot distinguish a deliberate invariant from an incidental implementation detail. Reading docs first is what lets an agent tell the difference before it decides a change is safe to make.
+
+## When a Doc and the Code Disagree
+
+A discrepancy between what a `.md` file says and what the code actually does is **never** resolved by quietly editing the code to match the doc, and **never** resolved by quietly editing the doc to match the code. Both are silent fixes, and both destroy information.
+
+- Silently changing the code assumes the doc's intent should win without checking whether the code was actually a deliberate, undocumented change in intent.
+- Silently changing the doc assumes the code's current behavior is correct without asking whether it's actually a drifted bug.
+
+**A doc-versus-code mismatch is flagged, not resolved unilaterally.** Decide with the project's owner which side is correct, then update every affected doc to reflect the agreed design before touching the code. Whichever side is "right" is a design question, not a mechanical one, and design questions get decided deliberately — not defaulted to whichever artifact happens to be easier to edit in the moment.
+
+## Who Owns the Repo Fact
+
+A component's `DESIGN.md` is written by the worker that changed that component — the actor that did the reasoning for that one unit. The Repo Fact is different.
+
+Because it spans components, no single component worker is positioned to update it correctly. It is owned instead by the tier doing the cross-component reasoning: **the orchestrator that scoped the whole change, decided which components are affected, and saw the change complete across all of them.**
+
+The orchestrator writes or updates the Repo Fact at **fan-in** — after every affected component has finished its own loop and reported back, not before, and not incrementally as each component lands. Writing it once, at the end, against the change as it actually landed across every component, avoids describing a cross-component flow that is only half-built. Shared logs that grow by append are updated serially at this same point, never clobbered by two components' changes landing out of order.
+
+The rule is simple: **document writes stay with the reasoning actor.** A component detail is written by the component worker that reasoned about it; a cross-component fact is written by the orchestrator that reasoned across components. An actor writing a doc tier it did not reason about is guessing, and a guess recorded as Fact is indistinguishable from a verified one until the next reader trusts it and is wrong.
+
+<Note>
+  When you first adopt DTDD on an existing repository, the Repo Fact tier will often be thin or absent. This is the bootstrapping phase: the orchestrator builds it incrementally as changes land and cross-component reasoning accumulates. Until it is well-established, lean harder on human review gates at fan-in — the orchestrator should flag every cross-component assumption it cannot verify in the docs before committing.
+</Note>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Design Docs" icon="file-lines" href="/concepts/design-docs">
+    The per-component tier the Repo Fact sits above — present-state truth for a single unit.
+  </Card>
+  <Card title="Fact Model" icon="layer-group" href="/concepts/fact-model">
+    The two-tier Fact model that design docs and Repo Docs together implement.
+  </Card>
+  <Card title="Orchestration" icon="sitemap" href="/workflow/orchestration">
+    How the orchestrator manages fan-out and fan-in, and when it writes the Repo Fact.
+  </Card>
+  <Card title="The Loop" icon="rotate" href="/workflow/the-loop">
+    The worker loop and fan-in sequence that the Repo Fact ownership rule is part of.
+  </Card>
+</CardGroup>

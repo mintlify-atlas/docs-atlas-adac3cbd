@@ -1,0 +1,120 @@
+---
+title: "Design-Derived Tests and the Three Verification Checks"
+sidebarTitle: "Testing"
+description: "DTDD treats every test as a derivative of the design doc's stated invariants — and requires three separately reported checks: typecheck, build, and run."
+---
+
+In DTDD, tests are not invented by guessing what might break — they are **derived from the design doc's stated invariants and pinned contracts**. A design document that says "a request missing the required identifier is rejected before any side effect" is not decoration; it is naming a test that must exist. This document covers the three distinct verification checks a component must pass before it is considered done, how tests flow from design rather than imagination, the tier structure that keeps a passing suite honest, and the honest limit of what the methodology can currently enforce mechanically versus what it asks for.
+
+## Three Distinct Checks: Typecheck ≠ Build ≠ Run
+
+A green typecheck, a green build, and a working runtime are three different claims. Conflating any two of them is how "all checks passed" ships something that does not actually work. Each check exercises a strictly larger slice of reality than the one before it, and each slice can fail independently.
+
+<Steps>
+  <Step title="Typecheck">
+    The compiler or linter confirms the code is internally type-consistent. This is the **cheapest and weakest** check: it never touches the module resolver's real output path, never emits a file, never loads a real config value. A passing typecheck is a claim about syntax, not about assembly or behavior.
+  </Step>
+  <Step title="Build">
+    The component's real build step — the one a deploy would run — actually emits artifacts: compiled files, a bundle, generated code. This is a **stronger and different** check than typechecking. A no-emit typecheck can pass while the real build fails on a path alias, a circular import, or a project-reference boundary that only the emit step resolves.
+
+    A build must run the real build command, not a `--no-emit` or `--check`-only variant.
+  </Step>
+  <Step title="Run">
+    The changed entrypoint or runtime surface is actually started (or invoked) with a minimal valid input and observed to behave. This is the **only one of the three that catches a runtime-only failure**: a config value read from an environment variable that is not set the way the build assumed, a file path that resolves correctly at compile time but not when the process boots, a dependency that resolves in source but not from the built output.
+  </Step>
+</Steps>
+
+<Note>
+**"Builds" is not "runs."** Each check is its own separately reported gate — build: pass/fail, test: pass/fail, runtime smoke: pass/fail — never a single rolled-up "checks passed." A team that stops at typecheck or build and calls the component done is asserting something it never actually checked.
+</Note>
+
+## Design-Derived Tests
+
+Tests in DTDD are derived from the design doc's stated invariants and any pinned contract — the frozen shape a component exposes to or consumes from another component. The rule is direct: **every invariant the design doc states, and every field or shape in a pinned contract, becomes at least one test case.**
+
+If a contract pins a field as non-nullable, a test asserts that a consumer breaks visibly — not silently — if the field arrives null. If a design doc states a rule about ordering, rejection, or state transitions, each sentence is a test waiting to be written.
+
+### Arrange / Act / Assert
+
+Each test follows the **Arrange / Act / Assert** pattern, with all three sections marked explicitly as comments even where the rest of the codebase keeps comments minimal. Test structure is the one place a repo's brevity convention makes a deliberate exception — because the three-part shape is what makes a test readable as a claim rather than a script.
+
+```typescript
+// Example: derived from invariant "a request missing the required identifier
+// is rejected before any side effect"
+
+it("rejects a request missing the required identifier", async () => {
+  // Arrange
+  const store = new InMemoryStore();
+  const handler = new RequestHandler(store);
+  const requestWithoutId = { payload: "valid-payload" }; // id intentionally absent
+
+  // Act
+  const result = await handler.process(requestWithoutId);
+
+  // Assert
+  expect(result.ok).toBe(false);
+  expect(result.error).toMatch(/missing.*identifier/i);
+  expect(store.writes).toHaveLength(0); // no side effect occurred
+});
+```
+
+### Red Before Green
+
+A test derived from an invariant is run **before the implementing code changes**, and must fail — and fail *for the stated reason*, not for an unrelated error (a typo in the test, a missing import). Confirming the right kind of failure proves the test is actually exercising the invariant, rather than trivially passing regardless of the code under test.
+
+Only once that red is observed does implementation proceed to make it green. This is genuine red-green-refactor test-driven development; the derivation step — from design, not from imagination — is what DTDD adds on top of plain TDD.
+
+## Test Tiers
+
+Not every test can run everywhere. Pretending otherwise is how a passing suite quietly depends on infrastructure that may not exist in the environment running it. DTDD separates tests by **what environment they require**, independent of any specific tool choice.
+
+| Tier | What it exercises | Needs external infrastructure? | Runs by default? |
+|---|---|---|---|
+| **Unit** | One function or unit, pure logic | No | Yes |
+| **Self-contained integration** | Multiple units wired together, or a real engine — but only in-process or embedded dependencies (no live external service) | No | Yes |
+| **Infra-gated** | A real external dependency — a live network service, a running server process, a managed datastore | Yes | No — opt-in only, and its absence must be stated |
+
+<Tip>
+A component that needs "real SQL through a real data-access layer" can often use an **embedded, in-process database engine** instead of a live database server — giving integration-level fidelity with none of the infrastructure dependency. The tier is the rule; any specific tool is today's implementation of it.
+</Tip>
+
+A test tier is decided by its infrastructure requirement, not by what it happens to be testing. Unit and self-contained integration tests must run with zero network access and zero external services, full stop. The moment a test needs a live dependency it is no longer either of those tiers — blurring that boundary is how a "tests pass" report silently depends on infrastructure that may be absent where it runs.
+
+## The Skip-Contract Naming Rule
+
+An infra-gated test is legitimate — some behavior genuinely can only be verified against a real external dependency — but it must never disappear silently. This is the same "explicit absence" discipline applied specifically to tests: **a skipped test announces exactly what was not exercised.**
+
+The rule has two parts:
+
+1. **Naming makes the gate visible.** An infra-gated test is named or grouped so that any runner can identify and exclude it *by rule*, not by someone remembering to comment it out. A test that reaches a live external dependency is never indistinguishable, by name or location, from a self-contained test.
+
+2. **A skip is reported, never implied.** Any run that excludes infra-gated tests states which ones it skipped and why — missing environment, not part of this pass. It does not present a green result as if it were full coverage. "Passed" and "passed, minus these named exclusions" are different claims, and only the second is honest when exclusions exist.
+
+Silence is the failure mode this guards against: a report that says "tests pass" while quietly omitting an entire tier reads as full confidence to anyone who did not write it. Naming the absence turns an omission into a statement.
+
+## Honesty Note: Prompt-Enforced, Not Gate-Enforced
+
+DTDD is candid about an asymmetry between its two halves.
+
+<Note>
+**The Design half is gate-enforced.** Validating a component's design doc before any code, and finalizing that doc only after the change lands, is backed by a structural check: an independent review pass stamps the work as design-synced, and a commit is mechanically blocked without that stamp. Nothing gets through without the check actually having run.
+
+**The TDD half is prompt-enforced.** The worker is instructed to write tests first and to confirm a red failure before implementing, and a compliant worker genuinely does that. But no machinery captures proof that red was observed before green — there is no mechanical artifact equivalent to the design-sync stamp for the test-first sequence. A worker that writes the implementation first and the tests after, then reports "red confirmed," cannot currently be caught by anything but a human or reviewer noticing.
+
+This gap is named deliberately rather than glossed over. A future hardening — capturing an actual red-state result before green is allowed to proceed — would close it. Until that exists, the discipline is real and expected, but it rests on the worker following instructions, not on a gate that blocks the alternative.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="The Loop" icon="arrow-rotate-right" href="/workflow/the-loop">
+    Where the three checks and test-writing steps sit inside the eight-step worker loop.
+  </Card>
+  <Card title="Runbooks" icon="list-check" href="/workflow/runbooks">
+    Executable scenarios for behavior that automated tests cannot reach or cannot faithfully simulate.
+  </Card>
+  <Card title="Review Gates" icon="shield-check" href="/workflow/review-gates">
+    The stamp/consume gate pattern behind the design-sync enforcement described above.
+  </Card>
+  <Card title="Design Docs" icon="file-lines" href="/concepts/design-docs">
+    The invariants and contracts that all tests are derived from.
+  </Card>
+</CardGroup>

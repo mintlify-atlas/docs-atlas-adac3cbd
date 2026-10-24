@@ -1,0 +1,122 @@
+---
+title: "Runbooks: Executable Test Scenarios Against Live Systems"
+sidebarTitle: "Runbooks"
+description: "Runbooks are precise, repeatable, falsifiable procedures — tied directly to design invariants — for behavior that automated tests cannot reach or faithfully simulate."
+---
+
+A runbook is an **executable test scenario written as a document** — a sequence a human or an AI agent can follow step by step, with no prior context beyond what the document states, that exercises real behavior of the running system and reports a clear pass or fail. Unlike a vague manual QA checklist, a runbook is exact enough that running it twice produces the same verdict. It exists because every design doc makes claims, and some of those claims can only be falsified against the real system.
+
+## Why Runbooks Exist
+
+Some behavior is real, important, and expensive or impractical to assert with an automated test. A multi-process flow that crosses independent services, a failure mode that only appears against a live external dependency, a timing-dependent recovery path — an automated suite either cannot reach this behavior at all, or can only reach it by simulating so much of the real environment that the simulation itself becomes the thing worth doubting.
+
+A runbook fills that gap. It is a **precise, repeatable, falsifiable procedure**, expressed in prose and commands, that a person or an agent runs against the real system and reports against explicit pass/fail criteria. The falsifiability is what distinguishes it from ad hoc manual verification: the criteria are stated in advance, not judged after the fact.
+
+## Anatomy of a Scenario
+
+Every runbook scenario is a single, independently runnable unit. It states its own delta on top of a shared base environment, gives exact commands, defines pass/fail precisely, and cleans up after itself — so any scenario, any subset, or the whole file can run in any order without one scenario's leftovers corrupting the next.
+
+<Steps>
+  <Step title="Short identifier and title">
+    A stable, referenceable label — for example, `S-04 — Duplicate delivery of a completed unit of work is skipped`. Stable enough to cite in a report, a commit message, or an incident note without ambiguity.
+  </Step>
+  <Step title="Proves Line">
+    Names exactly which design invariant or end-to-end flow this scenario proves, with a pointer to the document that states it (a component's `DESIGN.md`, or a shared flow doc). This is what makes the scenario more than a smoke test — see [The "Proves" Linkage](#the-proves-linkage) below.
+  </Step>
+  <Step title="Environment preconditions">
+    What must already be true or already running before the scenario starts: services up, a specific record already existing, a specific config value set. Stated as a **delta from a documented base environment**, not re-derived per scenario. A scenario that requires a genuinely different environment (a different topology, a destructive reset) gets its own file rather than being folded in.
+  </Step>
+  <Step title="Numbered execution steps">
+    Exact commands or actions, in order, with placeholders for any value the runner must resolve first — an id, a URL, a generated token. No ambiguity about what to run or in what sequence.
+  </Step>
+  <Step title="Pass/fail criteria — ALL conditions must hold">
+    Each condition phrased so it can be checked mechanically: a specific field equals a specific value, a specific log line appears, a count changes by exactly one. Never "looks right."
+
+    <Warning>
+    **All listed conditions must hold, or the scenario fails.** A partial pass is not a pass. If three of four criteria hold and one does not, the scenario verdict is FAIL — the criteria are a checklist, not a scoring rubric.
+    </Warning>
+  </Step>
+  <Step title="Cleanup">
+    Exact steps to return the environment to its prior state, or an explicit "none required" with the reason — for example, "none required: a background expiry process returns the record to its prior state within 60 seconds." Cleanup is never implied or left as an exercise for the runner.
+  </Step>
+</Steps>
+
+## The "Proves" Linkage
+
+Every scenario names **which design invariant or which end-to-end flow it proves**, with a pointer to the doc that states that invariant. This is what separates a runbook from an ad hoc manual test: a runbook exists *because* a design document made a claim, and the scenario is the falsifiable check of that specific claim.
+
+The link runs in one direction only — the design doc is the definition, the runbook is the exercise. A runbook never introduces a new rule of its own. If running a scenario surfaces behavior the design doc does not actually claim, that is a signal to fix the design doc (or the code), not to quietly encode a new expectation only in the runbook.
+
+A scenario's "proves" line must be specific enough that deleting the scenario would leave a named gap. Compare:
+
+| Too vague | Specific enough |
+|---|---|
+| "Proves the happy path works" | "Proves recovery after a mid-flight failure resumes from durable state, per the component's `DESIGN.md`" |
+| "Proves deduplication" | "Proves duplicate delivery of a completed unit is skipped, per the idempotency invariant in `services/processor/DESIGN.md`" |
+
+The vague form does not justify a runbook over an ordinary smoke test. The specific form names something that would be a genuine gap if absent.
+
+## Destiny Tags
+
+Every scenario carries a **destiny tag** — a stated answer to "what should eventually happen to this scenario." Without it, a runbook folder only ever grows, quietly becoming a permanent shadow test suite that nobody planned to keep manual forever.
+
+| Tag | Meaning | Lifecycle |
+|---|---|---|
+| `permanent` | Exercises a genuine external dependency — a live third-party service, a hardware interaction, a cross-account boundary — that an automated suite cannot run cheaply or faithfully | Stays a runbook indefinitely; run before a release or after a change to the infrastructure it touches |
+| `automate: <target>` | Tests something an automated test *could* cover once the right harness exists (e.g. a self-contained integration suite for the component) | Graduates to an automated test when that suite exists; the runbook entry shrinks to a pointer at the automated test rather than staying a full duplicate procedure |
+| `retire` | Proved something during a specific investigation or one-time migration with no ongoing reason to be re-run | Deleted once its purpose is served — not left to accumulate as dead weight |
+
+<Note>
+A scenario with no destiny tag is an oversight, not a valid state. Every scenario commits to one of these three so the runbook folder has a known trajectory.
+</Note>
+
+## One-Line Skeleton
+
+The full structure of a scenario, in the format used across runbook files:
+
+```markdown
+## S-<id> — <what this proves, in one line>            `<destiny tag>`
+
+**Proves:** <design invariant or flow, with a pointer to the doc that states it>
+
+### Preconditions (delta from base environment)
+...
+
+### Execute
+1. <command/action>
+2. <command/action>
+
+### Verify — ALL must hold, else FAIL
+1. <mechanically checkable condition>
+2. <mechanically checkable condition>
+
+### Cleanup
+<exact steps, or "none required" with why>
+```
+
+## Where Runbooks Sit Relative to the Fact
+
+Runbooks are not the Fact and do not define it. The Fact — the present-state truth of what a component or the system currently is — lives in design docs and code. A runbook **exercises** that truth from the outside: it runs the real system and checks that observed behavior matches what the design doc already claims. It is evidence *for* the Fact, never a second, competing source of it.
+
+Concretely:
+
+- A runbook never states a rule the design doc does not already state. If a scenario's pass/fail criteria assert something novel, that assertion must land in the design doc first (or be rejected there), and the runbook's "proves" line updated to point at it.
+- A design doc never depends on a runbook to be readable. A person reading a component's `DESIGN.md` gets the whole invariant without needing to know whether a runbook for it exists or currently passes.
+- When a runbook and a design doc disagree, the design doc is not automatically right — but the disagreement is a signal to resolve explicitly (fix the code, fix the doc, or fix the scenario), never to let the runbook quietly encode the "real" behavior on the side.
+
+This keeps runbooks in their proper role: a falsifiable, repeatable way of checking that the present-state truth is actually true when run for real — never a shadow definition of it.
+
+<CardGroup cols={2}>
+  <Card title="Testing" icon="flask" href="/workflow/testing">
+    The three-checks discipline and design-derived automated tests — the tier a runbook scenario graduates into under an `automate:` destiny tag.
+  </Card>
+  <Card title="Design Docs" icon="file-lines" href="/concepts/design-docs">
+    The invariants a runbook's "proves" line points at, and the present-state rules runbooks are evidence for.
+  </Card>
+  <Card title="The Loop" icon="arrow-rotate-right" href="/workflow/the-loop">
+    The worker and orchestrator loop that a runbook scenario ultimately verifies the output of.
+  </Card>
+  <Card title="OrderFlow Example" icon="cart-shopping" href="/example/orderflow">
+    A worked example showing runbooks in context alongside design docs and automated tests.
+  </Card>
+</CardGroup>

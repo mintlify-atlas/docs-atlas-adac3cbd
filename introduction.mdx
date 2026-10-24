@@ -1,0 +1,71 @@
+---
+title: "DTDD: Keep Agent Design Docs Permanently True"
+sidebarTitle: "Introduction"
+description: "DTDD solves context rot in AI coding agents by making design docs load-bearing — gated, enforced, and always describing the present state of your code."
+---
+
+AI coding agents are only as good as what they read. Hand-assembling good context per prompt works exactly once. Nothing forces yesterday's brief to remain true today — docs rot, and agents build confidently on stale truth. DTDD (Design-Test-Driven Development) fixes this at the root: rather than relying on careful humans or retrieval heuristics to assemble context, it makes a repository's design documents load-bearing. They are read before every change, updated as the last step of every change, and checked by an independent reviewer before every commit. Agents work against docs they can trust — and every change leaves better context for the next one.
+
+## The core idea: the Fact model
+
+DTDD introduces a single organising principle — the **Fact model** — which states that a repository maintains a living present-state truth at all times:
+
+> **Present-state truth = design docs + code**
+
+This Fact is held in two tiers. The **Component Fact** is each component's `DESIGN.md`: its contract, mechanism, and invariants — one document per component, following one fixed twelve-section template. The **Repo Fact** is the cross-component truth no single component can hold: architecture, data model, shared schemas, and business flows.
+
+Both tiers are strictly present-state. A change may move either or both. Docs never contain history — no changelog verbs, no dates, no "previously" — because a document that accretes history stops describing the system and starts describing its own past. History lives in two dedicated logs that sit alongside the Fact.
+
+Because a pre-commit gate mechanically blocks any commit whose docs have drifted from code, an agent can *trust* what it reads. A Fact nobody enforces is just documentation — and documentation rots.
+
+## Why docs, not memory or RAG?
+
+Retrieval finds *similar* text, not *true* text. A vector store happily serves the design from three commits ago, and nobody reviews an embedding. Docs in the repo already have a truth-maintenance protocol: they are diffed in every pull request, gated at every commit, and owned per component so an agent reads exactly its Fact.
+
+Memory layers and RAG can still sit on top of a DTDD repo — DTDD is what makes the things they would index worth retrieving.
+
+## What DTDD provides
+
+<CardGroup cols={2}>
+  <Card title="The Guide" icon="book-open" href="/concepts/methodology">
+    Ten short chapters covering the methodology, the Fact model, and the thirteen ideologies that follow from it. Start here.
+  </Card>
+  <Card title="/dtdd skill" icon="terminal" href="/reference/dtdd-skill">
+    One repo-wide change: plan → your approval → execute → review → your commit. The single-stage building block that all orchestration uses.
+  </Card>
+  <Card title="/dtdd-goal" icon="flag" href="/reference/dtdd-goal">
+    Takes a whole spec, decomposes it into stages, drives `/dtdd` per implementation stage, and brings you only the commit gates.
+  </Card>
+  <Card title="Two agents" icon="robot" href="/reference/component-agent">
+    A per-component worker (`dtdd-component`) and an independent design-sync reviewer that keeps every changed `DESIGN.md` matching its code.
+  </Card>
+  <Card title="The commit gate" icon="shield-check" href="/workflow/review-gates">
+    A stamp-gated pre-commit hook that blocks any agent commit until the independent design-sync reviewer has run. Ships with its own test.
+  </Card>
+  <Card title="/dtdd-init" icon="rocket" href="/reference/dtdd-init">
+    Sets up any repository in one command — doc skeletons, empty logs, and a proposed CLAUDE.md rules block. Safe to re-run.
+  </Card>
+</CardGroup>
+
+## Three-tier orchestration
+
+DTDD uses self-similar orchestration at three levels. Your session becomes the **Principal Orchestrator** the moment you type `/dtdd-goal <spec>`. The Principal decomposes the spec into stages and drives `/dtdd` once per implementation stage. Each `/dtdd` run instantiates the **DTDD Orchestrator** for that stage; it oversees reads design docs, dispatches component workers, and fans in — it never writes component code. **Component agents** (`dtdd-component` workers) do the implementing, one per affected component, via an eight-step loop. Finally, the **design-sync reviewer** runs in a fresh context before every commit to verify docs and code match.
+
+Design questions climb — a component agent that hits a question it cannot answer from its own design doc fails back to the orchestrator, which answers from the stage plan. If the question breaks the stage's assumptions, it pops up to the Principal. Only a question that invalidates the overall goal reaches you — plus the commit gate, which reaches you every time.
+
+## Who DTDD is for
+
+Not every repo is a good fit. DTDD adds cost up front so it can skip rework later:
+
+<CardGroup cols={2}>
+  <Card title="Good fits" icon="circle-check">
+    Long-lived, multi-component repositories where agents change code at volume and rework is expensive. Teams that will maintain design docs and honour the gates.
+  </Card>
+  <Card title="Bad fits" icon="circle-xmark">
+    Prototypes, repositories without clear component boundaries, and teams that won't commit to keeping docs current. A one-line fix doesn't need the full run — use the loop's discipline, skip the fan-out.
+  </Card>
+</CardGroup>
+
+<Note>
+  The methodology in this guide works with any AI agent harness. The shipped enforcement — the plugin, commands, hooks, and agents — is Claude Code-specific. The gate guards against *forgetting* the review, not against an agent determined to lie; the guide is explicit about which guarantees are mechanical and which are discipline.
+</Note>

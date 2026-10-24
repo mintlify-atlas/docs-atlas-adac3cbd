@@ -1,0 +1,88 @@
+---
+title: "Repo-Wide DTDD Orchestration Across Multiple Components"
+sidebarTitle: "Orchestration"
+description: "The DTDD orchestrator decomposes multi-component goals, detects seams from docs, pins contracts, and runs a read-only plan wave then an execute wave."
+---
+
+When a goal crosses a boundary no single component worker owns — a shared type, a response shape, an API surface that more than one component depends on — orchestration takes over. The DTDD orchestrator decomposes the goal into per-component goals, dispatches a worker loop for each affected component, and holds two gates that individual workers cannot reach on their own. Workers decide their own internals; the orchestrator decides which components to ask and how their shared boundaries must hold together. Nothing in the execute wave is written until the plan wave has been assessed and approved.
+
+## Seam detection — from design docs only
+
+A seam exists when one component's declared output is another's declared input. For example: an `email-sender` component emits a `DeliveryResult` shape that a `reporting` component consumes. The orchestrator identifies these seams by reading only each candidate component's `DESIGN.md` — specifically the section describing its export surface (what it produces, its public API) and the section describing its boundaries (who consumes it, what it depends on).
+
+<Note>
+  The orchestrator **never reads a component's internal code** to decide whether it needs to change. That question is answered by dispatching the component's own worker in read-only plan mode. Reading internals to make this call would recreate the dilution DTDD exists to avoid — one actor holding every component's implementation in its head. Docs are the bounded context on purpose: the orchestrator reasons about *boundaries*; each worker reasons about its own *internals*.
+</Note>
+
+## Bootstrapping — when the Fact is still thin
+
+Seam detection is only as good as the design docs it reads, and a repository newly adopting DTDD has few or none. The scaffolder deliberately refuses to bulk-generate them, because a doc written without reasoning is noise wearing the Fact's name.
+
+The honest path: early runs scope conservatively — fewer candidate components, more human attention at the planning gate — and each component's first DTDD change creates its `DESIGN.md` properly. The worker reasons about the component to change it; the design-sync reviewer creates a template-based doc for any changed component that lacks one. The Fact thickens change by change. Seam detection earns its blindfold as the docs earn their trust. Expect the first weeks to lean on the human gates harder than the steady state does.
+
+## Two waves — plan first, then execute
+
+### Plan wave (read-only)
+
+The orchestrator dispatches every candidate component's worker in **plan mode**, all in parallel. Plan mode writes nothing. Each worker returns a structured report containing:
+
+| Field | What it carries |
+|---|---|
+| `needs_change` | Whether the component actually needs to change for this goal |
+| `would` | What the worker would do if dispatched in execute mode |
+| `preserves` | Existing behavior the change must not break |
+| `risks` | New failure modes the change could introduce |
+| `contract_ok` | Whether the worker can expose or consume the proposed contract at a seam |
+
+**Contract pinning from plan reports.** The orchestrator folds every `preserves` item from the plan reports into the contract as an explicit pin. Each `risks` item becomes a test case the execute wave must add. A constant shared across components is pinned as a named export from the producer — never restated as a literal value in the contract, which would become an independent hardcoded copy in every worker.
+
+Any candidate whose plan reported `needs_change=no` is **not dispatched in the execute wave**. A confirmed no-op is recorded as such and never given a wasted loop.
+
+### Execute wave
+
+With the pinned contract and the pruned candidate set in hand, the orchestrator dispatches the non-noop workers in **execute mode**. Each worker runs the full eight-step loop. Sequence matters at seams: **producers run before consumers**. Components with no seam dependency run in parallel.
+
+The orchestrator writes the run plan to `tmp/<RUN_ID>/_orchestrator/plan.md` before dispatching the execute wave, covering the goal, affected set (noops marked), seams and pinned contracts, dispatch order, per-component goals, and the list of repo-level docs that will change.
+
+## Two human gates
+
+Exactly two points ask a human to look, and they are not interchangeable.
+
+**Planning gate — before any write.** The orchestrator presents the affected set (noops marked), the pinned contract at each seam, the dispatch order, and the repo-level documents that will change. This gate pauses a standalone run unconditionally. When a higher orchestration tier — the [Principal Orchestrator](/workflow/principal-orchestrator) — is driving and already holds the goal and decomposition, it may absorb this gate and approve a routine plan on its own authority, escalating to the human only when a finding contradicts a recorded decision or undermines the goal's premise.
+
+**Commit gate — always human, no exceptions.** After the execute wave and its fan-in checks (build, tests, boot, cross-component doc consistency, design-sync review), the orchestrator presents the full diff, every result, and any action only a human can take. There is no shortcut for this gate, no tier that may absorb it. Making the commit gate the one unconditional stop is what makes absorbing the planning-gate pause — on routine runs — safe rather than reckless.
+
+## Failback discipline
+
+A worker has no channel to a human. If, in either plan or execute mode, it finds the pinned contract wrong or the goal unachievable within its own invariants and scope, it stops and reports a **failback**: a reason plus a suggested alternative shape. It does not improvise a divergent contract to keep moving.
+
+The orchestrator receives the failback, re-pins the contract or re-scopes the goal from the suggestion, and re-dispatches the affected component. The worker never retries on its own judgment.
+
+<Warning>
+  **The one failure mode this pattern must never reach:** two workers on either side of a seam each improvising independently when the contract feels wrong. They diverge silently and the interface's two halves stop matching. Routing every disagreement back through the actor that pinned the contract is what keeps a seam from ever having two authors. Never let a worker improvise a divergent contract — the failback path exists precisely to prevent this.
+</Warning>
+
+## Model-tier discipline
+
+The orchestrator runs on the **strongest available reasoning tier**. Decomposition — seam detection, contract pinning, judging routine execution versus a genuine escalation — is the hard part, and there is only one orchestrator per run.
+
+Each worker runs on a **mid tier**. Executing an already-decomposed, scoped goal against a pinned contract is comparatively mechanical, and there are many workers per run.
+
+Neither tier delegates a canonical document write downward. A component's `DESIGN.md` is written by its own worker, never drafted by the orchestrator. The shared, repo-level documents are written by the orchestrator, never handed to a worker. This follows the reasoning-actor ownership principle: whichever actor reasoned about a piece of the Fact is the one that writes it down — a cheaper model writing a doc it did not reason about is how a canonical doc quietly stops matching the reasoning that supposedly produced it.
+
+## What to read next
+
+<CardGroup cols={2}>
+  <Card title="The Loop" href="/workflow/the-loop">
+    The eight-step worker loop that each dispatched component agent runs inside the execute wave.
+  </Card>
+  <Card title="Principal Orchestrator" href="/workflow/principal-orchestrator">
+    The top tier that drives multiple DTDD runs across a multi-stage spec and holds the cross-stage gates.
+  </Card>
+  <Card title="Review Gates" href="/workflow/review-gates">
+    The design-sync agent and stamp-gated pre-commit hook that run at fan-in before the commit gate.
+  </Card>
+  <Card title="DTDD Skill Reference" href="/reference/dtdd-skill">
+    The full skill definition — inputs, phases, fan-in checks, and output file structure for a single `/dtdd` run.
+  </Card>
+</CardGroup>

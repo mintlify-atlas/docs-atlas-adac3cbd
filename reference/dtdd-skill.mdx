@@ -1,0 +1,90 @@
+---
+title: "/dtdd: Run One Design-Driven Repo-Wide Change"
+sidebarTitle: "/dtdd"
+description: "DTDD orchestrator skill — one technical goal, a plan wave, component workers in execute mode, fan-in, and two human gates before any commit lands."
+---
+
+`/dtdd` is the core orchestration skill that executes a single DTDD run from start to commit gate. You give it one technical goal; it identifies every component the change touches, runs a read-only plan wave to understand what each component would need to change, pauses for your approval, then dispatches component workers to implement in the correct sequence. No file is written before you approve the plan, and nothing is committed without your explicit sign-off. Every run ends with a reviewed diff and a design-sync stamp — or it doesn't end.
+
+## Usage
+
+```text
+/dtdd <change description>
+```
+
+The change description is a **technical goal**, not a step-by-step instruction. Describe what must be true after the run, not how to get there — the orchestrator and component workers handle the how.
+
+```text
+/dtdd add a source-link field to result details so the UI can deep-link to the origin record
+/dtdd rename the charge-requested event to payment-requested across all consumers
+/dtdd move the rate-limit configuration out of the service and into the shared env template
+```
+
+## What a run looks like
+
+Each `/dtdd` invocation follows eight phases in strict order.
+
+<Steps>
+  <Step title="Intake">
+    The orchestrator reads the goal from the command argument. If no goal is present, it stops and asks — a run with no goal goes nowhere.
+  </Step>
+
+  <Step title="Scope + seams (read-only)">
+    The orchestrator identifies candidate components from the repo layout, reads each candidate's `DESIGN.md` (the *What This Does* and *Boundaries* sections only), and hypothesizes seams — shapes that one component produces and another consumes. It also greps across docs, prompts, deploy config, and README for any path, symbol, or identifier the goal moves. Internal component code is not read at this stage; the plan wave asks each component what it would change.
+  </Step>
+
+  <Step title="Plan wave">
+    One `dtdd-component` agent per candidate is dispatched in **plan mode**, all in parallel. Plan mode is read-only — workers assess what they would change and report back. No file is written. Each report includes: whether a change is needed, what it would do, what existing behavior must be preserved (`preserves=`), and what failure modes the change introduces (`risks=`).
+  </Step>
+
+  <Step title="Pin contracts">
+    The orchestrator folds the plan reports into a concrete execution plan. Every `preserves=` item becomes an explicit contract pin; every `risks=` item becomes a required test case in the execute wave. Confirmed noops are dropped from the execute list. Producer-first dispatch order is chosen per seam.
+  </Step>
+
+  <Step title="PLANNING GATE — stop for human">
+    The orchestrator presents the full plan: candidate set (noops marked), seams and pinned contracts, dispatch order, and the exact list of repo-level docs that will change. **Nothing is written before you approve.** Amend the plan here if needed; the orchestrator re-plans from your feedback.
+  </Step>
+
+  <Step title="Execute wave">
+    Non-noop `dtdd-component` agents are dispatched in **execute mode** with their pinned contracts — producers run first across a seam, parallel otherwise. Each worker runs the full 8-step DTDD loop: validate design → write spec → write tests (red) → implement (green) → refactor → update DESIGN.md → discard spec → self-verify and report.
+
+    If a worker fails back (hits a broken assumption, an out-of-scope dependency, or a contract mismatch), the orchestrator re-pins and re-dispatches. Workers never reach the human directly — every break surfaces to the orchestrator first.
+  </Step>
+
+  <Step title="Fan-in">
+    The orchestrator builds every changed component, runs their tests, and boot-smokes the affected entrypoints. It then writes repo-level docs (decisions-log entry, architecture/flow/README updates — present-state only), checks cross-worker doc consistency, and dispatches the `design-sync` agent in an independent context to verify that every changed DESIGN.md matches the staged code. Design-sync creates the commit stamp as its final step.
+  </Step>
+
+  <Step title="COMMIT GATE — stop for human">
+    The orchestrator presents the full diff, build and test results, boot-smoke results, the design-sync outcome, and every human-only action item (new env variables, policy-blocked removals). **You commit; the orchestrator never runs `git commit` autonomously.** When you say "commit," that is the approval — the orchestrator runs the commit and push/PR rather than handing you commands to type.
+  </Step>
+</Steps>
+
+## Hard rules
+
+Every `/dtdd` run enforces these constraints unconditionally:
+
+- **Two human gates, always** — planning (step 5) and commit (step 8). Neither can be silently skipped.
+- **Never commits autonomously** — the design-sync stamp plus the gate hook admit exactly one commit, and only after you approve it.
+- **Workers cannot reach the human** — all failbacks surface to the orchestrator. The orchestrator re-pins the contract and re-dispatches; only a break in assumptions, decisions, or design escalates upward.
+- **Boundaries are the orchestrator's; internals are the workers'** — the orchestrator reads design docs to decide *which* components are affected; each worker decides *what* changes inside its own component via plan mode.
+- **Repo-level docs belong to the orchestrator** — the decisions-log, architecture doc, README, and shared schemas are written at fan-in. A component's `DESIGN.md` belongs to its worker. Neither writes the other's.
+
+<Note>
+  When `/dtdd` is driven by a higher orchestration tier — the `/dtdd-goal` Principal Orchestrator — that tier may absorb the planning gate on your behalf for routine stage plans. The commit gate is never absorbed by anyone; it always reaches you.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Orchestration" icon="diagram-project" href="/workflow/orchestration">
+    How the three-tier model connects Principal, orchestrator, and component workers.
+  </Card>
+  <Card title="The Loop" icon="rotate" href="/workflow/the-loop">
+    The 8-step worker loop each component agent runs inside the execute wave.
+  </Card>
+  <Card title="/dtdd-goal" icon="bullseye" href="/reference/dtdd-goal">
+    Drive a whole multi-stage spec using /dtdd once per implementation stage.
+  </Card>
+  <Card title="/dtdd-init" icon="wand-magic-sparkles" href="/reference/dtdd-init">
+    Scaffold DTDD doc structure into a repository before the first run.
+  </Card>
+</CardGroup>

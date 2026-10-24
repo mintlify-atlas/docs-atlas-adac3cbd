@@ -1,0 +1,109 @@
+---
+title: "design-sync: Independent Doc↔Code Reviewer Agent"
+sidebarTitle: "Design-Sync Agent"
+description: "Independent reviewer that syncs each affected DESIGN.md with staged code — dispatched fresh, never inline, creates the stamp the commit gate requires."
+---
+
+The `design-sync` agent is the independent reviewer that keeps DESIGN.md files permanently true. It is dispatched by the committing session in a fresh context — never run inline by the session that authored the diff — so it has no stake in the change and no memory of how it was made. Its sole job is to read staged code, read the corresponding design docs, and bring every affected component's `DESIGN.md` in line with what is about to be committed. When that work is done, it creates the single-use commit stamp the pre-commit gate requires. Without the stamp, the gate blocks the commit.
+
+## When it runs
+
+The design-sync agent is dispatched once per commit, at the end of the fan-in phase, after the orchestrator has written all repo-level docs and before the commit gate is presented to the human. The committing session dispatches it as a separate agent call — not as a function, not as a code block within its own context — so the review is genuinely independent. The agent reads only what is staged; it has no awareness of the broader run.
+
+## What it does
+
+<Steps>
+  <Step title="Scope — which components are affected?">
+    The agent runs `git diff --cached --name-only` to list every staged file and groups them by component. The rules:
+
+    - A directory that owns a `DESIGN.md` (a service, app, package, or module with its own manifest or entry point) → that component.
+    - A shared cross-component artifact (a schema file, a shared data-model doc) → the component plus the repo-level doc that describes it; drift between the two must be resolved in the same commit.
+    - A directory with no `DESIGN.md` by convention (e.g. pure infrastructure config) → skipped, but mentioned in the report.
+    - Doc-only, test-only, or formatting-only changes → no doc work needed; stated explicitly rather than silently skipped.
+  </Step>
+
+  <Step title="For each affected component WITH a DESIGN.md">
+    The agent reads the component's `DESIGN.md`, then reads the staged diff for that component (`git diff --cached -- <component path>`). For each staged change it asks:
+
+    - Does it alter a **contract** (message shape, endpoint, public API, storage layout)? → update *What This Does*.
+    - Does it alter a **mechanism** (flow, ordering, concurrency, retry)? → update *How It Works*.
+    - Does it add, change, or remove a **rule or invariant**? → update *Rules & Invariants* in mechanism → rule → why form.
+    - Does it implement a **design decision** made in conversation? → add to *Key Design Decisions* AND add a decisions-log entry.
+    - Does it add, rename, or remove **env vars or tunables**? → update *Configuration*.
+    - Does it resolve an **Open Question** or complete a **Next Step**? → move or remove it.
+
+    The agent also verifies existing invariant text against the current code — not only the new changes. A claim that was accurate before the diff but is no longer true after it counts as drift, even if nothing was explicitly "added." "Already mentioned" is not "still accurate."
+
+    All doc edits are written **present-state only**. Every doc update must read as the current design with no reference to what it used to be.
+
+    Two severity levels apply:
+
+    <Warning>
+      **Design divergence** — the code now contradicts a documented rule, invariant, or decision. The agent does **not** silently rewrite the doc to match the code. It stops immediately and surfaces the divergence to the operator. The doc may be right and the code wrong — that is a human call, not a reviewer's assumption.
+    </Warning>
+
+    **Mechanical drift** — a renamed symbol, a changed default value, a moved file, a new env var. The agent updates the doc directly. This is the expected, routine case: code details that advanced while the doc was momentarily stale.
+  </Step>
+
+  <Step title="For each affected component WITHOUT a DESIGN.md">
+    A new component gets a `DESIGN.md` created from scratch using the template at `docs/templates/DESIGN.template.md`. The creation process:
+
+    1. Read the template in full.
+    2. Read the component's code — entry point first, then every file the entry point imports. Every fact in the new doc must come from code read in this session; nothing is written from memory or assumption.
+    3. Fill all twelve sections in template order. Sections that genuinely don't apply use the exact wording `None — <reason>.` — not `None currently.`, not `None planned.` — so the template convention stays uniform.
+    4. *Related Documents* lists only docs actually read while writing this DESIGN.md that share concrete overlap. A doc that doesn't mention this component is not cited just because it's topically nearby; a stale pointer is worse than none.
+
+    The resulting doc must satisfy one test: a reader with no prior context should be able to reconstruct an accurate picture of the component from the file alone.
+  </Step>
+
+  <Step title="Verify and close out">
+    Before creating the stamp, the agent does four things:
+
+    1. **Present-state self-check** — greps its own staged doc edits for changelog verbs outside the logs:
+       ```bash
+       git diff --cached -- '*.md' | grep -iE 'removed in |formerly |superseded by |replaced by |no longer |previously |used to |deprecated|migrated from'
+       ```
+       Any hit inside a `DESIGN.md` is rewritten present-state before staging. The logs are exempt — they narrate change by design.
+
+    2. **Stage all edited and created files** — `git add` every file touched. The stamp admits one commit; any doc edit not staged will silently miss the release.
+
+    3. **Create the gate stamp** so the commit can proceed:
+       ```bash
+       touch "$(git rev-parse --absolute-git-dir)/.design-sync-stamp"
+       ```
+       The stamp is single-use — the pre-commit gate consumes it as it admits one commit. The next commit requires a fresh design-sync run.
+
+    4. **Report** — per component: what changed in the code, what was updated in the doc (or why nothing was needed), any design divergence that caused a stop, and the result of the present-state self-check (clean, or what was fixed).
+  </Step>
+</Steps>
+
+## Present-state writing rule
+
+Every DESIGN.md must read as the current design — not a changelog, not an annotated history. The following verbs are banned from DESIGN.md files (they belong in the decisions-log, which narrates change over time):
+
+`replaced`, `removed`, `no longer`, `previously`, `formerly`, `used to`, `transitional`, `migrated from`, `deprecated`, `was X now Y`
+
+The rule applies in both directions: the agent enforces it on docs it writes, and it rewrites any instance of these verbs it encounters in a doc it is already touching. The correct form is the present statement of the mechanism — not "the client **is replaced by** a pooled connection" but "the service talks to the queue through a pooled connection."
+
+**No provenance.** DESIGN.md files do not cite the skill, command, or run that produced a change, and do not link to transient specs, plans, or run IDs. A doc states current facts, not how those facts came to be. (A doc whose subject is a tool may describe that tool.)
+
+**Only maintained IDs.** The only identifiers a DESIGN.md may cite are a decisions-log entry, an improvements-log `IMP-XXX` reference (self-contained per the improvements-log convention), or an intra-doc anchor. Run IDs, seam IDs, generator labels, and external ticket IDs are unmaintained provenance — a reader cannot look them up.
+
+<Note>
+  The design-sync agent owns one thing: **DESIGN.md↔code sync** for the components in the staged diff. It does not audit the full repository for template adherence across untouched files, naming conventions, import discipline, or artifact hygiene. Those belong to other review lenses. Design-sync's scope is bounded intentionally — a narrow, repeatable check run before every commit, not a whole-repo audit.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Commit Gate" icon="shield-halved" href="/reference/commit-gate">
+    The pre-commit hook that verifies the stamp and blocks commits until design-sync has run.
+  </Card>
+  <Card title="Review Gates" icon="gate" href="/workflow/review-gates">
+    How the stamp-and-consume model works, and the two human gates that frame every run.
+  </Card>
+  <Card title="Design Docs" icon="file-lines" href="/concepts/design-docs">
+    The DESIGN.md discipline, the 12-section template, and the present-state writing standard.
+  </Card>
+  <Card title="The Loop" icon="rotate" href="/workflow/the-loop">
+    Where design-sync fits inside the broader orchestration cycle — dispatched at fan-in.
+  </Card>
+</CardGroup>

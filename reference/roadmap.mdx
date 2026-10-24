@@ -1,0 +1,67 @@
+---
+title: "DTDD Roadmap: What Ships and What Comes Next"
+sidebarTitle: "Roadmap"
+description: "What ships in DTDD today — guide, plugin, commands, orchestration — plus two documented gaps where discipline currently stands in for a gate."
+---
+
+DTDD ships a complete, usable methodology today: the full written guide, an installable Claude Code plugin, runnable commands, and a three-tier orchestration model with a working pre-commit gate. Two gaps are also documented here, plainly, because each is a place where the methodology's claim is held by discipline rather than a mechanical gate. Naming them is not a caveat — it is the same honesty the methodology asks of every DESIGN.md: state what is true now, and what remains an open question.
+
+## What Ships Today
+
+<CardGroup cols={2}>
+  <Card title="Full Guide">
+    The complete written guide: the Fact model, the thirteen ideologies, the worker loop, three-tier orchestration, document ownership, review gates, and the testing discipline. Readable and followable without the plugin installed.
+  </Card>
+  <Card title="Installable Plugin">
+    The Claude Code plugin bundles the conductor skill, the design-sync agent, the component-worker agent, the stamp-enforced pre-commit gate hook, and the `/dtdd-init` scaffold command. Install with `/plugin marketplace add ssdhage/dtdd` then `/plugin install dtdd`.
+  </Card>
+  <Card title="/dtdd-goal Command">
+    The Principal Orchestrator tier as a runnable artifact. `/dtdd-goal <spec>` drives multi-stage goals across components, coordinates DTDD Orchestrator runs, and manages the tier-aware gate model spanning all three tiers.
+  </Card>
+  <Card title="Three-Tier Orchestration">
+    The full orchestration model — Principal Orchestrator, DTDD Orchestrator, and Component Workers — documented as a pattern with explicit responsibilities at each tier, including the top tier's five duties and its gate model.
+  </Card>
+</CardGroup>
+
+The top tier's discipline can still be driven by hand from the guide alone; the `/dtdd-goal` command packages it as a runnable artifact for convenience. The gate script ships with a runnable self-test (`hooks/gate-test.sh`) that covers its blocking, scoping, and stamp-consumption branches.
+
+## Possible Future Hardenings
+
+<Accordion title="Stamp staleness detection">
+  The pre-commit gate checks that the design-sync stamp *exists* and consumes it on pass. What it does not detect is an edit made *after* the stamp was created.
+
+  The stamp certifies the repository tree as the design-sync agent saw it. Any write between stamp creation and the commit — an applied review finding, a last manual tweak, a simplify pass — invalidates that guarantee even though the stamp file still exists. The gate will still admit the commit because the file is present.
+
+  The documented discipline is: re-run the design-sync agent after any post-stamp edit. This is enforced by convention, not by a gate.
+
+  A future hardening would close this gap mechanically: compare the stamp file's modification timestamp against the modification timestamps of every file in the staged tree, and reject a stamp that is older than any staged file it was supposed to certify. This is the honest gap between what "stamp present" proves today (the check ran at some point before this commit) and what a staleness-aware gate would prove (the check ran after the last edit to the staged tree).
+</Accordion>
+
+<Accordion title="A gated red-state proof">
+  The worker loop's two halves — Design and TDD — are currently enforced asymmetrically.
+
+  The **Design half** is gate-enforced: the pre-commit hook blocks the commit unless the design-sync stamp exists, and that stamp can only be created by the independent design-sync agent completing a clean run. Skipping the design review is structurally impossible under normal use.
+
+  The **TDD half** is prompt-enforced only: a component worker is instructed to write tests first, confirm they fail for the right reason, and only then write the implementation. Nothing mechanically captures that red state happened. A compliant worker does real red-first TDD; nothing currently stops a non-compliant worker from writing tests after the fact and asserting that red occurred.
+
+  A future hardening would close this gap the same way the design half is already closed: capture a **red-state proof** (for example, a recorded test-run result showing the expected failure) before implementation is allowed to proceed, and gate on that proof the same way the pre-commit hook gates on the design-sync stamp. This is not designed or scheduled yet — it is recorded here as the honest gap between what DTDD claims (real TDD) and what the current version can prove mechanically.
+</Accordion>
+
+<Note>
+  Both gaps above are documented explicitly rather than glossed over. A methodology that claims design-doc fidelity and test-first discipline should be honest about where those claims rest on a gate and where they rest on the agent following instructions. Until the hardenings ship, both rest on discipline — and naming that is itself the methodology working as intended.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Introduction" href="/introduction">
+    The Fact model, the thirteen ideologies, and what DTDD is trying to solve.
+  </Card>
+  <Card title="Quickstart" href="/quickstart">
+    Install the plugin and run your first DTDD change in under ten minutes.
+  </Card>
+  <Card title="Review Gates" href="/workflow/review-gates">
+    The stamp/consume pattern, independent-context verification, and the compulsory gate model.
+  </Card>
+  <Card title="Testing Discipline" href="/workflow/testing">
+    The TDD half of the loop — how workers are instructed to write and confirm red-state before implementing.
+  </Card>
+</CardGroup>

@@ -1,0 +1,155 @@
+---
+title: "Component DESIGN.md: Structure, Rules, and Discipline"
+sidebarTitle: "Design Docs"
+description: "What a DESIGN.md is, who reads it, the twelve-section template every component follows, and the rules that keep it a trustworthy present-state contract."
+---
+
+Every component in a DTDD repository — a service, a job, a shared package, a frontend app — carries exactly one `DESIGN.md`. This file is the Component Fact: the present-state contract for that unit, read first by anyone about to change it and written last by whoever makes the change. This page covers what a `DESIGN.md` is, the fixed structure it must follow, and the rules that give it its reliability.
+
+## What a DESIGN.md Is
+
+A `DESIGN.md` is not documentation *about* a component — it is the component's **contract**, in prose. It states what the component does, how it works, what must remain true of it, and what was deliberately not built. An agent about to touch the component reads this file *instead of* reading the component's internals to understand intent; the code is read only afterward, to verify the file's claims still hold.
+
+This gives every `DESIGN.md` two readers with different needs, both served by the same fixed structure:
+
+- **A human reviewer** diffs the `DESIGN.md` against their mental model of the component and immediately sees what moved. A fixed structure means they know exactly where to look — invariants are always under "Rules & Invariants," rejected alternatives are always under "Deliberately Left Out."
+- **An AI agent** parses the file's fixed sections as a schema, not free text. It can jump straight to the section it needs without reading everything, and it can parse a hundred components' docs across a repo-wide change as one schema rather than a hundred idiosyncratic essays.
+
+The component's `DESIGN.md` is the substrate a worker reasons from — not a summary written after the fact. A summary written after the code already exists tends to describe what the code happens to do, not what it *must* do. A contract read *before* the change is what keeps the change accountable to something other than itself.
+
+## The Fixed Twelve-Section Template
+
+Every `DESIGN.md` in the repo uses the same section list, in the same order, regardless of whether the component is a backend service, a shared library, or a frontend app. The section list is a grammar, not a suggestion: a section that does not apply to this component still appears — it states so explicitly (see [Explicit Absence](#explicit-absence) below).
+
+1. **Header preamble** *(unnamed block under the H1 title)* — one paragraph: what the component is in one sentence, where to start reading its entry-point files, and any document that must be read first.
+2. **Why This Exists** — the problem this component solves, stated in the present. What breaks or is impossible without it.
+3. **What This Does** — responsibilities and contracts: inputs, outputs, the public API or endpoint table. Reference material (endpoint tables, type shapes, file layouts) lives here.
+4. **How It Works** — the mechanism walkthrough a newcomer reads first: a numbered flow from trigger to completion. Sub-mechanisms (concurrency model, retry model, evaluation semantics) are subsections here.
+5. **Boundaries** — what each internal layer owns and must NOT know about. Who consumes this component, what it depends on, which identities and credentials it runs under.
+6. **Rules & Invariants** — everything that must remain true, each written as mechanism → rule → why. Ordering rules, conflict rules, idempotency guarantees, delivery contracts, naming conventions. This is the section reviewers check a change against.
+7. **Key Design Decisions** — numbered. Each: the decision (stated in the present), the rationale, and the alternative that lost. No dates, no "was X now Y."
+8. **Deliberately Left Out** — what was considered and not built, with the reason. Protects future readers from re-proposing rejected designs.
+9. **Configuration** — environment variables and tunable values: name, purpose, default, where it comes from.
+10. **Open Questions** — unsettled items only. Settled questions move to Key Design Decisions.
+11. **Next Steps** — ordered, near-term work for this component.
+12. **Related Documents** — pointers to the architecture doc, schema doc, sibling `DESIGN.md`s, runbooks, and the decisions log, each with one phrase saying what it contains.
+
+A fixed grammar means "where are this component's invariants" has the same answer everywhere: the "Rules & Invariants" section, always in the same position. An agent parsing a hundred components' docs reads them as one schema. A human doing the same review diffs section-by-section instead of hunting for where equivalent content landed this time.
+
+## Explicit Absence
+
+A section that has nothing to say for this component is never dropped from the file. It stays, with a one-line body stating why it does not apply.
+
+```markdown
+## Configuration
+
+None — no runtime configuration.
+```
+
+```markdown
+## Open Questions
+
+None — no open questions.
+```
+
+An empty section is a statement, never an omission. A missing heading is ambiguous — it reads as either "not applicable" or "nobody looked." A one-line `None — <reason>.` answers that question on sight, and it means a reader can trust that every present heading was actually considered for this component, not skipped by oversight.
+
+The same pattern extends past `DESIGN.md` itself: a skipped test names what it did not exercise, and a rejected design is recorded rather than left for a future reader to silently re-propose. Absence that isn't stated is indistinguishable from absence nobody noticed.
+
+## Present-State Only
+
+A `DESIGN.md` describes the component **as it currently is** — never as a record of how it got that way. The rule is absolute: no changelog verbs, no dates, no references to a former state.
+
+<Tabs>
+  <Tab title="❌ Bad — contains history">
+    ```markdown
+    ## How It Works
+
+    The service previously read from the legacy store but was migrated
+    to the new queue-based worker in Q3. It no longer uses the old
+    polling approach.
+    ```
+  </Tab>
+  <Tab title="✅ Good — present-state only">
+    ```markdown
+    ## How It Works
+
+    The service processes work items via a queue-based worker. On each
+    cycle it dequeues a batch, applies the transformation, and writes
+    results to the output store.
+    ```
+  </Tab>
+</Tabs>
+
+The Fact (present-state docs) and the Narrative (the logs recording change over time) are two different documents. A decision this component's design reflects — and the alternative that lost — belongs in the "Key Design Decisions" section, stated as current reasoning ("this component does X, not Y, because…"), not as a dated before-after entry. The dated record of *when* that decision was made lives in the repo-wide decisions log, never here.
+
+A `DESIGN.md` also never cites how a change was produced: no run identifiers, no generator or skill names, no links to a scratch spec or discussion thread. It states the fact the change left behind, not the process that produced it.
+
+## Read-First, Write-Last
+
+Both the read and the write of a `DESIGN.md` are load-bearing, not incidental.
+
+<Steps>
+  <Step title="Read the design doc before the code">
+    Before any change, the component's `DESIGN.md` is read before its code. The reader determines one of three outcomes: the design is unchanged (proceed straight to tests), the design needs a change (proceed, planning to update the file at the end), or the design is compromised — the file no longer describes reality and the change cannot safely proceed on top of it (stop and escalate).
+  </Step>
+  <Step title="Implement the change">
+    Work proceeds against the design as understood. Any working notes about the design delta stay outside the `DESIGN.md` in a scratch location — the canonical file only ever holds the current, settled state.
+  </Step>
+  <Step title="Write the design doc after tests pass">
+    The `DESIGN.md` is updated once, after the code change is implemented and tests pass — never drafted early and left to drift while the implementation is still in flux, and never edited twice (once as a guess, again as a correction).
+  </Step>
+</Steps>
+
+The canonical doc is written once, against reality. A doc updated before the code exists describes an intention that may not survive contact with implementation. A doc updated twice means the interim state was published as fact when it wasn't one yet. Writing it once, last, against code that has already been built and tested, is what keeps "the `DESIGN.md` is true" a statement a reader can rely on rather than one they have to double-check.
+
+## Who Writes It
+
+The `DESIGN.md` is owned by whoever did the reasoning for that change to that component — never delegated downward to a cheaper pass just because the writing itself is mechanical. The reasoning that produced the change is the reasoning qualified to state its result; a paraphrase written by an actor that didn't do the reasoning risks restating an intention the actual implementation didn't fully honor.
+
+This is Ideology 5 (Reasoning-Actor Ownership): a canonical doc write is never delegated to a cheaper model. The worker that changed a component writes its `DESIGN.md`; the orchestrator that reasoned about the cross-component change writes the shared docs.
+
+## Template Structure
+
+The full shipped template, with its writing standard and all twelve sections, is reproduced below in condensed form. The actual template file includes detailed guidance comments for each section.
+
+```markdown
+# <Component Name> — Design & Decision Log
+
+One paragraph: what the component is, where to start reading, documents to read first.
+
+## Why This Exists
+## What This Does
+## How It Works
+## Boundaries
+## Rules & Invariants
+## Key Design Decisions
+## Deliberately Left Out
+## Configuration
+## Open Questions
+## Next Steps
+## Related Documents
+```
+
+The writing standard that applies to every section: **mechanism → rule → why**. Explain what a mechanism IS and how it works *before* stating rules about it, then give the reason — the failure the rule prevents. No compressed jargon without its underlying explanation. The test: a reader with no prior context — human or LLM — should reconstruct an accurate picture from this file alone.
+
+<Tip>
+The Orderflow example repository ships fully worked `DESIGN.md` specimens for every component. Reading one before writing your first doc answers most "what does a good one look like" questions. See [the Orderflow example](/example/orderflow) to browse the full set.
+</Tip>
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Repo Docs" icon="map" href="/concepts/repo-docs">
+    The sibling Repo Fact tier: architecture, data model, and business flow documents that no single component's DESIGN.md can hold.
+  </Card>
+  <Card title="Fact Model" icon="database" href="/concepts/fact-model">
+    The two-tier present-state truth model that DESIGN.md files belong to, and the two properties that make the Fact trustworthy.
+  </Card>
+  <Card title="Templates Reference" icon="rectangle-list" href="/reference/templates">
+    The full DESIGN.md template with writing standard guidance and all twelve section prompts.
+  </Card>
+  <Card title="Orderflow Example" icon="cart-shopping" href="/example/orderflow">
+    A complete worked example showing every document tier — including DESIGN.md files — in a real multi-component repository.
+  </Card>
+</CardGroup>

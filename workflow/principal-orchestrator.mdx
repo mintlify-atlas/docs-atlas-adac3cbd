@@ -1,0 +1,135 @@
+---
+title: "Principal Orchestrator: Run a Full Multi-Stage Spec"
+sidebarTitle: "Principal Orchestrator"
+description: "The session itself, not a subagent: /dtdd-goal drives a spec across stages, absorbs routine planning gates, and routes only commit gates to the human."
+---
+
+The Principal Orchestrator is the top tier of DTDD's three-tier model. It is not a spawned agent — it **is the session itself**, running as a thin skill invoked as `/dtdd-goal <spec>`. It takes a development spec as the comprehensive goal, treats it as the Fact of what must be true when the work is done, and drives that goal to completion stage by stage by running the DTDD orchestration loop underneath it. Below the Principal sits the DTDD orchestrator (one change, one run), and below that, the component workers (one component each). The Principal decomposes, sequences, and adjudicates across the whole arc; it never reaches two levels down to touch a component directly.
+
+## Why it must be the session, not a subagent
+
+A subagent's context ends when it returns a result. The Principal's does not end until the goal does.
+
+Splitting "decompose and hold the goal" into a subagent would sever the one thread that makes adaptive alignment possible — the running memory of what was decided, what landed, and what must still hold true. Two things structurally require a continuous session: the **multi-turn human dialogue** that spans every stage boundary, and the **cross-stage gates** that depend on everything decided so far. A subagent cannot hold either. Only the session itself stays alive across every stage boundary and every human turn, which is why the rule is unconditional: the Principal is the session, not an engine spawned by one.
+
+## The five responsibilities
+
+<Steps>
+  <Step title="Read the spec as the goal">
+    Read the development spec in full and treat it as the comprehensive goal — the Fact of what must be true when the work is done. Restate it back in a sentence or two before proceeding. A misread here is cheapest to catch now, before any stage is planned or dispatched.
+  </Step>
+
+  <Step title="Decompose into DTDD-sized stages">
+    Break the goal into the **smallest set of stages** that achieves it. Each stage is one coherent, independently verifiable unit of work — sized so a single DTDD run (for code) or a single design pass (for a doc-only stage) can finish it.
+
+    Manufacturing extra stages to look thorough works against the goal: the invariant is the comprehensive goal, not the stage count. Mark order and dependencies explicitly — a stage that produces a shape another consumes runs first; independent stages are parallel-eligible.
+  </Step>
+
+  <Step title="Drive the loop, per stage">
+    For each stage in order, run the right engine:
+
+    - **Implementation stage** (changes code) → runs via one `/dtdd` invocation, passing the stage goal and whatever prior stages pinned.
+    - **Design stage** (produces or refines a doc, no code) → runs a design pass: brainstorm the approach, then write the doc.
+
+    The Principal supplies the stage goal and context, then waits for the engine's result. It does not reach into the component worker tier directly.
+  </Step>
+
+  <Step title="Adjudicate the gates">
+    Apply the tier-aware gate model at every stage boundary. The Principal absorbs the routine planning decision — it already holds the goal and performed the decomposition, making it the qualified reviewer of a routine stage plan — and escalates to the human only when a stage's plan or outcome breaks an assumption, a recorded decision, or the design. The commit gate always reaches the human; that never changes.
+  </Step>
+
+  <Step title="Re-scope from what landed">
+    After a stage lands, re-read the remaining stages against what actually happened. A stage rarely finishes exactly as planned. If an outcome reshapes a later stage, update the plan; if the change is material, re-present the affected scope.
+
+    This is what distinguishes the Principal from "run the DTDD loop N times in sequence": each stage's outcome re-informs the next, rather than the whole decomposition being fixed and blind at the start. **The comprehensive goal is the invariant; the stage list is a working sketch that adapts to it.**
+  </Step>
+</Steps>
+
+## Self-similar orchestration
+
+The same coordination shape recurs at every tier, one level down each time:
+
+> **Principal Orchestrator : DTDD runs :: DTDD orchestrator : component workers**
+
+The Principal decomposes a goal into DTDD runs and drives them one stage at a time, exactly as the DTDD orchestrator decomposes a single change into per-component work and dispatches one worker per component. Each tier stays in its own loop, spawns only the tier directly below it, and holds its own gates. A Principal Orchestrator does not inspect a component's code any more than a DTDD orchestrator does — both work from the declared surface the tier below reports back, not from peeking inside it.
+
+This is why the model composes cleanly as the work grows: adding a tier never means inventing a new coordination pattern, only applying the one pattern one level higher.
+
+## The tier-aware gate model
+
+Three gates exist across the three tiers. Each is handled by the tier that owns the reasoning behind it — only a genuine divergence climbs to the level above.
+
+| Gate | Tier | Handled by | Human pause? |
+|---|---|---|---|
+| Component fail-back | 3 — component worker | Reported up to the DTDD orchestrator; re-pinned and re-dispatched | Never |
+| Planning gate | 2 — DTDD orchestrator, per stage | Absorbed by the Principal Orchestrator on routine runs | Only on a break in assumptions, decisions, or design |
+| Commit gate | 1 — Principal Orchestrator → human | The human, at each stage boundary | **Always — no exceptions** |
+
+**A component's fail-back never pauses a human.** A worker that finds the assigned contract wrong reports `failback` with a suggested fix to the DTDD orchestrator. The orchestrator re-pins and re-dispatches. This keeps a single component's local uncertainty from interrupting a session-level dialogue over something the orchestrator can resolve on its own.
+
+**The per-stage planning gate is absorbed by the Principal**, not bounced to the human by default. The Principal already holds the comprehensive goal and performed the decomposition — it is the qualified reviewer of a routine stage plan. Escalating every stage plan to the human would turn a multi-stage goal into a wall of low-value approvals. The Principal only escalates when a stage's plan or outcome represents a genuine break in assumptions, decisions, or design.
+
+**The commit gate is always human**, with no exception at any tier. This is the backstop that makes absorbing the planning gate safe: whatever the Principal decided or provisionally proceeded on is still reviewed, in full, before anything is committed.
+
+## The two escalation classes
+
+When the Principal's planning judgment hits a break in assumptions, decisions, or design, it sorts the break into exactly one of two classes:
+
+<Tabs>
+  <Tab title="Correctable within the goal's intent">
+    The break can be resolved without contradicting anything already decided or changing what the goal means. The Principal proposes the fix, proceeds provisionally, and surfaces the proposal visibly at the **next commit gate** for human sign-off.
+
+    Stages are not blocked on something the Principal is confident it read correctly. The commit gate — which is always human — is the backstop for everything the Principal adjudicated along the way.
+  </Tab>
+  <Tab title="Goal-invalidating">
+    The break contradicts a recorded decision, or undermines the premise the remaining stages depend on. The Principal **pauses now and asks** before dispatching another stage.
+
+    Proceeding would risk building further stages on a premise that no longer holds. Every design suggestion the Principal makes during adjudication becomes visible to the human, at the very latest by the next commit gate. A decision-level contradiction is never resolved silently — silence at this tier is exactly the failure mode the gate model exists to prevent.
+  </Tab>
+</Tabs>
+
+## A full run, end to end
+
+The README's worked example shows the whole arc — note what the human touches and what the tiers handle autonomously:
+
+```text
+you:       /dtdd-goal order cancellation, end to end — cancel from the page;
+           payments must never charge a cancelled order
+
+principal: goal restated; decomposed into 2 stages (backend endpoint + skip,
+           then the cancel button against it). TOP-LEVEL GATE — approve?
+you:       approve
+
+principal: drives stage 1 via /dtdd; absorbs its planning gate (it holds the
+           goal and did the decomposition)
+  orchestrator: execute wave (producer first) — workers test-first, implement
+     worker: failback — "skipped charges: publish a settled event, or stay silent?"
+     orchestrator: answers from the stage plan (stay silent), re-dispatches
+  orchestrator: fan-in — build, tests, boot; decisions-log entry; design-sync
+                reviews docs↔code and stamps
+principal: COMMIT GATE — diff + results + anything it adjudicated. Commit?
+you:       commit        ← the gate consumes the stamp; stage 1 lands
+
+principal: re-scopes stage 2 against what landed, drives it the same way
+principal: COMMIT GATE — stage 2. Commit?
+you:       commit        ← goal converged; summary of what each stage delivered
+```
+
+After the one upfront approval, only the commit gates come back to the human. The worker's fail-back is handled entirely within the orchestration tiers — it never surfaces as a human interruption.
+
+## What to read next
+
+<CardGroup cols={2}>
+  <Card title="Orchestration" href="/workflow/orchestration">
+    The DTDD orchestrator tier — plan wave, execute wave, seam detection, contract pinning, and the two human gates per stage.
+  </Card>
+  <Card title="The Loop" href="/workflow/the-loop">
+    The eight-step worker loop that runs inside each stage's execute wave, one component at a time.
+  </Card>
+  <Card title="/dtdd-goal Reference" href="/reference/dtdd-goal">
+    Full command reference for the Principal Orchestrator invocation — inputs, the stage-driving loop, and convergence.
+  </Card>
+  <Card title="DTDD Skill Reference" href="/reference/dtdd-skill">
+    The `/dtdd` skill that the Principal drives once per implementation stage, covering the full two-wave, two-gate run.
+  </Card>
+</CardGroup>

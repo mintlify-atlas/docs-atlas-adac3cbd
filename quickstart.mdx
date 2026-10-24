@@ -1,47 +1,128 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with DTDD in Your Repository"
+sidebarTitle: "Quickstart"
+description: "Install the DTDD Claude Code plugin, scaffold your repository with /dtdd-init, and run your first design-driven change in under ten minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through installing the DTDD plugin, scaffolding the required doc structure into your repository, and running your first design-driven change. By the end you will have a working DTDD setup — design doc skeletons for both Fact tiers, the two history logs, a proposed `CLAUDE.md` rules block, and a pre-commit gate that enforces doc↔code fidelity on every agent commit.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+<Info>
+  DTDD requires **Claude Code**. The methodology works with any AI agent harness, but the plugin, commands, hooks, and agents ship specifically for Claude Code.
+</Info>
 
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Installation and setup
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Install the DTDD plugin">
+    Add DTDD from the Claude Code plugin marketplace, then install it into your environment.
 
-    ```bash
-    npm install your-package
+    ```text
+    /plugin marketplace add ssdhage/dtdd
+    /plugin install dtdd
     ```
+
+    This fetches the plugin authored by Swapnil Dhage (`ssdhage/dtdd`) and makes the `/dtdd-init`, `/dtdd`, and `/dtdd-goal` commands available in your Claude Code session.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
+  <Step title="Scaffold your repository with /dtdd-init">
+    From inside the repository you want to adopt DTDD, run:
+
+    ```text
+    /dtdd-init
     ```
+
+    This command is **idempotent and non-destructive** — it never overwrites a file that already exists. If a file is already present it is skipped; if `CLAUDE.md` already exists the rules block is shown to you first and only applied on your approval.
+
+    Here is the structure `/dtdd-init` creates:
+
+    ```text
+    your-repo/
+    ├── CLAUDE.md                              ← proposed DTDD rules block added here
+    ├── .gitignore                             ← tmp/ entry added if missing
+    └── docs/
+        ├── templates/
+        │   └── DESIGN.template.md             ← 12-section template every DESIGN.md follows
+        ├── architecture/
+        │   ├── architecture.md                ← Repo Fact: components and how they connect
+        │   └── data-model.md                  ← shared schemas no single component owns
+        ├── decisions/
+        │   └── decisions-log.md               ← permanent: why things are the way they are
+        └── improvements/
+            └── improvements-log.md            ← transient: what is known-imperfect right now
+    ```
+
+    <Note>
+      `/dtdd-init` does **not** generate per-component `DESIGN.md` files. Those are written by the DTDD worker on the first change to each component — whoever does the reasoning about a component writes that component's document.
+    </Note>
+
+    At the end of the run, the command reports exactly what was created, what was skipped as already-present, and what action was taken on `CLAUDE.md`.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
+  <Step title="Run your first change with /dtdd">
+    Once scaffolding is complete, drive a single repo-wide change:
+
+    ```text
+    /dtdd <describe your change>
     ```
+
+    Every `/dtdd` run pauses at exactly two points — these pauses are permanent and by design:
+
+    1. **Planning gate** — after a read-only assessment wave, the orchestrator presents a plan. At the top level this pause reaches you; when running inside `/dtdd-goal`, the Principal Orchestrator absorbs routine planning gates automatically.
+    2. **Commit gate** — after implementation, tests, and the independent design-sync review have all passed, the commit gate presents a diff, results, and anything the orchestrator adjudicated. **This gate always reaches you.** Commit authority never leaves the human.
+
+    The design-sync reviewer runs in a **separate context** from the authoring session — it has no stake in the diff and checks docs↔code fidelity without bias.
+  </Step>
+
+  <Step title="Drive a multi-stage goal with /dtdd-goal">
+    For larger work that spans multiple implementation stages, hand a complete spec to the Principal Orchestrator:
+
+    ```text
+    /dtdd-goal <spec>
+    ```
+
+    The spec is whatever settled what to build — a brainstorm, an RFC, a written plan. The Principal decomposes it into stages, drives `/dtdd` once per implementation stage, absorbs routine planning gates itself, and brings you only the commit gates.
+
+    For example:
+
+    ```text
+    /dtdd-goal order cancellation, end to end — cancel from the page;
+               payments must never charge a cancelled order
+    ```
+
+    The Principal restates the goal, decomposes it (for example: backend endpoint + skip-charge logic, then the cancel button against it), asks for your top-level approval once, then drives each stage autonomously. You see only the commit gate at the end of each stage — one approval per stage to land the work.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## The two gates in detail
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+Every `/dtdd` run, whether triggered directly or by `/dtdd-goal`, goes through the same two checkpoints:
+
+| Gate | Who approves | What it checks |
+|---|---|---|
+| **Planning gate** | You (direct run) or the Principal (inside `/dtdd-goal`) | Stage plan, component list, pinned contracts — approve before any code is written |
+| **Commit gate** | Always you | Diff, build result, test result, design-sync stamp — approve before the commit lands |
+
+<Warning>
+  The pre-commit hook enforces the design-sync stamp mechanically. A commit without a valid stamp is blocked outright — the gate guards against *forgetting* the review, not against an agent determined to skip it deliberately.
+</Warning>
+
+## Next steps
+
+<Tip>
+  Read the methodology guide next to understand the Fact model and the thirteen ideologies that explain why every DTDD rule is the way it is: `/concepts/methodology`.
 </Tip>
+
+<CardGroup cols={2}>
+  <Card title="The Methodology" icon="book-open" href="/concepts/methodology">
+    The Fact model, the thirteen ideologies, and the full argument for why docs — not RAG or memory — are the right substrate for agent context.
+  </Card>
+  <Card title="The Eight-Step Loop" icon="arrow-rotate-right" href="/workflow/the-loop">
+    How each component worker runs: read the design, validate, implement, verify with three distinct checks, and write the design back.
+  </Card>
+  <Card title="/dtdd-init reference" icon="terminal" href="/reference/dtdd-init">
+    Full reference for the scaffold command — what it creates, what it skips, and how the CLAUDE.md rules block is composed.
+  </Card>
+  <Card title="/dtdd skill reference" icon="wrench" href="/reference/dtdd-skill">
+    Full reference for the single-stage DTDD skill — the planning wave, the execution wave, and the commit gate.
+  </Card>
+</CardGroup>

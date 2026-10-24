@@ -1,0 +1,99 @@
+---
+title: "/dtdd-init: Scaffold DTDD into Any Repository"
+sidebarTitle: "/dtdd-init"
+description: "Run once to install DTDD's doc skeletons, logs, and CLAUDE.md rules block into any repo. Idempotent and non-destructive — safe to re-run at any time."
+---
+
+`/dtdd-init` is the one-time setup command that wires a repository into the DTDD methodology. It creates the documentation skeletons DTDD needs — architecture stubs, the two logs, the component design template — and proposes a CLAUDE.md rules block that tells every future agent session how to read and write in this repo. Because every step is idempotent, re-running the command after adding new files or merging branches is always safe: existing files are never overwritten, and append-only files grow only by what is missing.
+
+## What it creates
+
+`/dtdd-init` works in four phases, in order.
+
+<Steps>
+  <Step title="Doc skeletons — both Fact tiers">
+    The command copies `DESIGN.template.md` from the plugin to `docs/templates/DESIGN.template.md` so every future component design doc has a consistent 12-section starting point. It then creates two architecture stubs if they don't already exist:
+
+    - `docs/architecture/architecture.md` — the Repo Fact: cross-component truth covering system shape, component inventory, and shared flows.
+    - `docs/architecture/data-model.md` — the shared data model: schemas and storage shapes no single component owns.
+
+    Both stubs are created with a purpose line and empty sections; any existing file at those paths is skipped unchanged.
+
+    <Note>
+      `/dtdd-init` does **not** bulk-generate per-component `DESIGN.md` files. Those are written by the worker agent on its first change to each component — or by a human. A scaffolder cannot reason about a component's internals, so it doesn't try.
+    </Note>
+  </Step>
+
+  <Step title="The two logs">
+    The decisions log and improvements log are copied from the plugin's templates:
+
+    - `docs/decisions/decisions-log.md` — permanent record of why things are the way they are.
+    - `docs/improvements/improvements-log.md` — transient list of known imperfections, each with an `IMP-XXX` identifier.
+
+    Both are skipped if already present. If present and non-empty, nothing is merged or appended — the command leaves them exactly as they are.
+  </Step>
+
+  <Step title="CLAUDE.md methodology rules block">
+    The command composes a DTDD rules block covering five topics, then handles `CLAUDE.md` without ever editing it silently:
+
+    - **Reading priority** — design docs first (`DESIGN.md` → architecture docs → other docs); code is read only to verify the docs; a doc↔code discrepancy is flagged and resolved deliberately, never patched silently in code.
+    - **Present-state discipline** — every doc except the two logs describes the current state; no changelog verbs, no dates; history lives only in the logs.
+    - **Shared-code consumption** — shared code is consumed through its published public surface (by package name in JS/TS workspaces, through the module boundary in other ecosystems), never via deep relative-source imports into another package's internals.
+    - **Document ownership** — component code, tests, and `DESIGN.md` belong to the worker; shared docs (architecture, data model, logs, root README) belong to the orchestrator at fan-in; templates and `CLAUDE.md` change only with explicit human approval.
+    - **Review gates** — before any commit, the design-sync agent runs in an independent context and creates the single-use commit stamp; the commit gate is always human.
+
+    <Warning>
+      If `CLAUDE.md` already exists, `/dtdd-init` **never edits it silently**. It shows the proposed block, tells you where it would be appended, and applies it only on your explicit approval. If a DTDD rules block is already present, it diffs the existing block against the current version and proposes only the delta — or reports "already present, nothing to do."
+    </Warning>
+  </Step>
+
+  <Step title="Report">
+    After all steps complete, the command prints a summary listing every file created, every file skipped (with the reason — already present), and the CLAUDE.md action taken (created / proposed-and-applied / proposed-and-declined / already present). It then suggests the next step: read the methodology guide, then run `/dtdd <first change>`.
+  </Step>
+</Steps>
+
+## Resulting directory structure
+
+After a clean run on a fresh repository, the layout looks like this:
+
+```text
+your-repo/
+├── .gitignore              ← tmp/ appended if it was missing
+├── CLAUDE.md               ← new, or the existing file with the DTDD block appended
+└── docs/
+    ├── architecture/
+    │   ├── architecture.md ← stub: Components, How They Connect, Open Questions
+    │   └── data-model.md   ← stub: Entities
+    ├── decisions/
+    │   └── decisions-log.md
+    ├── improvements/
+    │   └── improvements-log.md
+    └── templates/
+        └── DESIGN.template.md  ← the 12-section component doc template
+```
+
+<Note>
+  `/dtdd-init` appends `tmp/` to `.gitignore` if the line is missing. DTDD runs write throwaway specs and plans under `tmp/<run_id>/` during orchestration, and those intermediate files must never be staged.
+</Note>
+
+## After scaffolding
+
+Once `/dtdd-init` completes, the repo is ready for its first DTDD run. The suggested path:
+
+1. Read the methodology guide to understand the Fact model and the two-wave discipline.
+2. Run `/dtdd <first change>` to make your first design-driven change.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get from install to your first DTDD run in under five minutes.
+  </Card>
+  <Card title="Design Docs" icon="file-lines" href="/concepts/design-docs">
+    How DESIGN.md files work and what the 12-section template contains.
+  </Card>
+  <Card title="The Logs" icon="book" href="/concepts/the-logs">
+    The decisions log and improvements log — what they carry and why they're separate.
+  </Card>
+  <Card title="/dtdd skill" icon="terminal" href="/reference/dtdd-skill">
+    Run a single design-driven, repo-wide change after the scaffold is in place.
+  </Card>
+</CardGroup>

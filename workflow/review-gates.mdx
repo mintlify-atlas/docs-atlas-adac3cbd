@@ -1,0 +1,146 @@
+---
+title: "Non-Overlapping Review Lenses and the Stamp/Consume Gate"
+sidebarTitle: "Review Gates"
+description: "How DTDD structures review as many narrow, non-overlapping lenses — each declaring what it does NOT check — and enforces the doc-fidelity lens with a structural stamp/consume gate."
+---
+
+Reviewing a change is itself a design problem. A single reviewer that tries to cover doc fidelity, conventions, security, and correctness simultaneously ends up checking all of them shallowly — and when it stays silent, nobody can tell whether it checked security and found nothing or simply never got there. DTDD answers this with **many narrow lenses, each declaring what it does *not* check**, over one fuzzy reviewer. The declared boundary is not a disclaimer; it is the mechanism that prevents two lenses from both skipping a concern (a silent gap) or both claiming it (wasted, conflicting review).
+
+## Non-Overlapping Lenses
+
+A lens is a reviewer scoped to exactly one concern, with an explicit statement of what lies outside its scope. Together, well-scoped lenses tile the full surface of a change exactly once each — so a reader always knows which lens is responsible for catching a given class of problem.
+
+Two output rules apply universally. **A lens reports; it does not fix** — applying a finding is the author's or orchestrator's decision, made with context the lens does not have. **A lens never grades its own findings' severity** — it states what it found and lets the tier that owns the change weigh it. The compulsory doc-fidelity lens is the stated exception to the first rule: its gate-enforced role includes applying mechanical fixes directly and distinguishing mechanical drift from genuine design divergence, while every on-demand lens only reports.
+
+<Accordion title="Doc-fidelity lens (compulsory, hook-gated)">
+**What it checks:** Does the component's design doc still match the code that is about to land? After a change, does every section of the `DESIGN.md` reflect the present state of the implementation?
+
+**What it explicitly does NOT check:** Whether the code is idiomatic, secure, bug-free, or consistent with repo conventions. Its only question is: do the doc and the code agree?
+
+**Output rules:** This lens is the stated exception to the "report only" rule. It applies mechanical fixes — a renamed field, a moved default, a corrected file path — directly. When it encounters genuine design divergence (the code now contradicts a documented rule, not just drifts from a name), it surfaces the disagreement rather than resolving it on its own authority, because that judgment call belongs to a human.
+
+**When it runs:** Before every commit. The pre-commit hook makes this non-optional — a commit without a fresh doc-fidelity stamp is mechanically blocked.
+</Accordion>
+
+<Accordion title="Conventions lens">
+**What it checks:** Does the change follow the repo's own documented conventions — naming, template structure, ID discipline, where things live, shared-code import discipline (shared code is consumed as a built package by name, never via deep relative-source imports into another package's internals), and artifact hygiene (no stale or per-package lockfiles where the workspace shares one, no committed build output)?
+
+**What it explicitly does NOT check:** Business logic, security invariants, or doc fidelity. Its only question is: does this look like the rest of the repo?
+
+**Output rules:** Reports findings only; does not apply changes. Severity weighting is the caller's decision.
+
+**When it runs:** At the pull-request boundary — before opening a PR (the author's pass) and when reviewing an incoming PR (an independent pass on someone else's diff).
+</Accordion>
+
+<Accordion title="Security lens">
+**What it checks:** Does the change respect the security invariants the repo has already committed to in its own docs — credential handling, input validation, access checks?
+
+**What it explicitly does NOT check:** Code quality, convention adherence, or doc fidelity. It checks only the specific invariants that are documented, not a general security audit against external standards.
+
+**Output rules:** Reports findings only. Does not grade code style or flag convention issues even if it notices them.
+
+**When it runs:** At the pull-request boundary — before opening a PR and when reviewing an incoming PR.
+</Accordion>
+
+<Accordion title="Correctness lens">
+**What it checks:** Does the logic do what it is supposed to do? Are there bugs, edge cases, or regressions introduced by this change?
+
+**What it explicitly does NOT check:** Conventions, doc fidelity, or performance. Its scope is whether the code is logically correct, not whether it is clean or fast.
+
+**Output rules:** Reports findings only. Does not apply fixes or flag style issues.
+
+**When it runs:** At the pull-request boundary — before opening a PR and when reviewing an incoming PR.
+</Accordion>
+
+<Accordion title="Performance / efficiency lens">
+**What it checks:** Does the change waste work — redundant calls, missing batching or pooling, pagination mistakes, hot-path allocations?
+
+**What it explicitly does NOT check:** Correctness or style. Its scope is cost, not logic. This lens is often scoped to one subsystem where cost concentrates (a network client, a query layer) rather than applied repo-wide.
+
+**Output rules:** Reports findings only. Does not flag correctness issues even if they happen to carry a performance cost.
+
+**When it runs:** At the pull-request boundary — before opening a PR and when reviewing an incoming PR.
+</Accordion>
+
+## Compulsory vs. On-Demand
+
+Not every lens runs with the same force. The doc-fidelity lens is **hook-gated and compulsory** — nothing commits without it, because a design doc that silently drifts from the code is exactly the failure the whole methodology exists to prevent. The other four lenses are **on-demand**: not mechanically enforced on every commit, but expected at fixed points in a change's lifecycle, via discipline rather than a blocking gate.
+
+Fixed timing is what makes the on-demand discipline auditable. A conventions or correctness pass on every micro-commit is wasted force; skipping it at the PR boundary is a silent gap. The two-sided PR boundary — author's pass before opening, reviewer's pass when reviewing — gives a yes/no answer to "was this PR conformance-reviewed?"
+
+| Lens | Trigger | Enforced by |
+|---|---|---|
+| Doc-fidelity | Every commit | Pre-commit hook (stamp gate) |
+| Conventions | Before opening PR · When reviewing PR | Discipline |
+| Security | Before opening PR · When reviewing PR | Discipline |
+| Correctness | Before opening PR · When reviewing PR | Discipline |
+| Performance | Before opening PR · When reviewing PR | Discipline |
+
+## Independent-Context Verification
+
+DTDD ideology 12: **the checker is never the author.** A session that just wrote a diff is structurally biased toward it — it remembers its own intent, glosses over its own shortcuts, and reads its own code more charitably than a stranger would.
+
+So the doc-fidelity check does not run inline in the authoring session. It is dispatched as a **separate agent** with a fresh context and no stake in the change. It reads the same staged diff a genuinely independent reviewer would, because it has no memory of writing it.
+
+<Note>
+The same discipline applies to on-demand lenses. A conventions, security, correctness, or performance pass run *by the session that authored the diff* inherits the author's bias just as surely. The gate only enforces independent context for doc-fidelity, but the reason holds for every lens — dispatch each as a fresh-context agent.
+</Note>
+
+The shipped example is the [design-sync agent](/reference/design-sync-agent): a model-pinned, tool-restricted agent dispatched fresh for every commit. It reads the staged diff, brings each affected component's design doc back in line with the code, and — critically — refuses to silently paper over a genuine divergence. Mechanical drift (a renamed field, a moved file) it fixes directly; a real disagreement (the code contradicts a documented rule) it surfaces instead of resolving on its own authority.
+
+## The Stamp/Consume Gate Pattern
+
+DTDD ideology 6: a gate has to *prove* the check ran, not just assume it did. "The reviewer usually remembers to run this" is not a gate — it is a hope. The stamp/consume pattern makes the proof structural.
+
+<Steps>
+  <Step title="Upstream process creates a single-use stamp">
+    The review agent writes a stamp file as the very last step of a clean run — after every doc is verified or fixed, never before. Only the review agent may create this stamp; no other process writes it.
+  </Step>
+  <Step title="Downstream hook consumes the stamp on pass">
+    The pre-commit hook checks for the stamp's existence. If present, it **deletes** the stamp (consuming it) and lets the commit through. The deletion is the point — a stamp is good for exactly one commit, so the next commit cannot coast on an old check.
+  </Step>
+  <Step title="Absent stamp blocks with instructions">
+    If the hook finds no stamp, it fails the commit and prints exactly what to run to produce one. It never falls back to "proceed anyway." An absent stamp means the check did not happen, full stop.
+
+    <Note>
+    The one exception is the hook's own internal tooling failures — an unavailable interpreter, an unresolvable git directory — which fail open with a warning, so a broken hook cannot silently block every commit in the repo.
+    </Note>
+  </Step>
+  <Step title="Nobody hand-creates the stamp">
+    Manually touching the stamp file is indistinguishable from a real pass, from the gate's point of view. The stamp's only legitimate origin is the review agent finishing its work.
+
+    <Warning>
+    This rule is itself unenforced — nothing mechanically stops a session from forging the stamp. The gate's threat model is **forgetfulness** (the common failure), not **circumvention** (which no file-existence check can stop). A session that would forge a stamp would also lie in a report, and no gate fixes that.
+    </Warning>
+  </Step>
+  <Step title="A stamp goes stale the moment anything edits after it">
+    The stamp certifies the tree *as the review agent saw it*. Any write between stamp creation and the commit — a simplify pass, an applied review finding, a last manual tweak — invalidates that guarantee even though the file still exists. Re-run the review agent (which re-stamps) after any post-stamp edit.
+
+    For the same reason, **write-capable review passes run sequentially, never in parallel** — two passes editing the same files clobber each other, and the doc-fidelity check must always see the final state, so it runs last.
+  </Step>
+</Steps>
+
+### Honesty Notes
+
+<Note>
+**The stamp proves the check ran, not that its judgment was right.** The reviewing agent is a model reading a diff; the gate makes skipping the review impossible, not misjudging it. That is still the correct trade — an always-run independent review catches what an occasionally-run perfect one misses — but "gated" here means "cannot be skipped," never "cannot be wrong."
+</Note>
+
+<Note>
+**Staleness is prompt-enforced, not gate-enforced.** What the hook mechanically checks is stamp *presence* and consume-on-pass. A stamp created before a later edit still admits the commit — re-running after any post-stamp edit is discipline, not a gate. A future hardening would compare the stamp's timestamp against later modifications and reject a stamp older than the tree it certifies.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Design-Sync Agent" icon="robot" href="/reference/design-sync-agent">
+    The model-pinned, tool-restricted agent that creates the doc-fidelity stamp for every commit.
+  </Card>
+  <Card title="Commit Gate" icon="lock" href="/reference/commit-gate">
+    The pre-commit hook that consumes the stamp and blocks commits when it is absent.
+  </Card>
+  <Card title="Testing" icon="flask" href="/workflow/testing">
+    The three distinct checks (typecheck, build, run) and design-derived test discipline.
+  </Card>
+  <Card title="Methodology" icon="book" href="/concepts/methodology">
+    Ideologies 6, 7, and 12 — the principles behind gates, lenses, and independent context.
+  </Card>
+</CardGroup>

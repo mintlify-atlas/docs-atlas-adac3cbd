@@ -1,0 +1,118 @@
+---
+title: "dtdd-component: Per-Component DTDD Worker Agent"
+sidebarTitle: "Component Agent"
+description: "Worker agent for one component — runs the 8-step DTDD loop in plan or execute mode, never commits, and never writes shared or repo-level docs."
+---
+
+The `dtdd-component` agent is the unit of implementation inside every DTDD orchestration run. The orchestrator dispatches one worker per affected component; each worker operates in complete isolation — it has no memory of the orchestrator's context, cannot see other workers, and cannot reach the human. Everything it needs arrives as explicit inputs at dispatch time. Its job is to validate the component's design, derive tests from it, implement against those tests, and return a single structured report. It never commits, never touches another component, and never writes shared or repo-level docs.
+
+## Two modes
+
+Each worker is dispatched in exactly one of two modes:
+
+<Tabs>
+  <Tab title="plan mode">
+    Read-only assessment. The worker reads the component's `DESIGN.md` and the goal, decides what it would change, and reports back. **No files are written.** Plan mode is where component-local constraints that the orchestrator cannot know about surface: existing callers, stored data formats, and invariants the change must preserve. The orchestrator folds these into the pinned contract before the planning gate.
+  </Tab>
+  <Tab title="execute mode">
+    The full 8-step DTDD loop. The worker validates the design, writes a throwaway spec, writes tests first (red), implements (green), refactors, updates the component's `DESIGN.md` to match what landed, discards the spec, and self-verifies with a real build, test run, and runtime smoke. It then returns one structured report and stops.
+  </Tab>
+</Tabs>
+
+## Inputs
+
+The orchestrator substitutes all seven inputs at dispatch. Workers have no other channel for receiving instructions.
+
+| Input | Description |
+|---|---|
+| `mode` | `plan` or `execute` — determines which phases run |
+| `run_id` | The orchestration run ID; namespaces the throwaway spec path under `tmp/` |
+| `component_name` | Human-readable component name (e.g. `payments`) |
+| `component_path` | Repo-relative path to the component root (e.g. `services/payments`) |
+| `goal` | The technical goal for this component — what to achieve, not how |
+| `contract` | The frozen shared shape this component must honor, or `none` when there is no seam |
+| `seam_role` | `producer`, `consumer`, or `none` — see below |
+
+## Seam roles
+
+The `seam_role` input tells the worker how it relates to the pinned contract across a seam:
+
+- **`producer`** — this component defines the contract shape. Other components will conform to what it exposes. Tests assert the component exposes the contract exactly.
+- **`consumer`** — this component conforms to the contract exactly as given. It does not redefine or extend it. Tests assert the component consumes the contract exactly (same field names, types, nullability). If the contract shape is wrong or unconformable, the worker fails back — it never improvises a divergent shape.
+- **`none`** — intra-component change with no cross-component shape. The worker has full internal autonomy; there is no contract to enforce.
+
+## Plan mode output
+
+A plan mode report contains five fields:
+
+| Field | What it carries |
+|---|---|
+| `needs_change` | `yes` or `no` — whether any implementation change is required |
+| `would` | One-line description of what the worker would change |
+| `preserves` | Existing stored data, payloads, callers, and concept variants that must keep working after the change |
+| `risks` | Failure modes the new change introduces, each with its mitigation or the test that would catch it |
+| `contract_ok` | `yes`, `no`, or `n/a` — whether the proposed contract can be honored |
+
+`preserves=` and `risks=` are the plan wave's most important outputs. The orchestrator folds every `preserves=` item into the contract as an explicit pin and carries every `risks=` item as a required test case into the execute wave.
+
+<Note>
+  **`preserves=`** guards existing behavior the contract cannot know about — stored data shapes every current record still carries, callers that must keep working, legacy enum members. **`risks=`** is different: it brainstorms failure modes the *new* change introduces — edge cases, semantic ambiguities, interaction with existing logic. Report `none` for `risks=` only if you genuinely find no failure mode; that is rare for a real change.
+</Note>
+
+## Execute mode output
+
+After the full 8-step loop, the worker emits exactly one structured report line and stops. The fields:
+
+```text
+done | component=<name> | design=<unchanged|changed> | tests=<N> | files=<N> | design_md=<updated|nochange|none> | selfcheck=<ok|fail|skip> | status=ok | note=<short>
+```
+
+Three alternative statuses are possible instead of `done`:
+
+- **`noop`** — no change was needed after inspecting the design and code.
+- **`failback`** — the goal cannot be met without violating an invariant, requiring out-of-scope changes, or because the contract shape is wrong. Includes a `suggested=` field so the orchestrator can re-pin.
+- **`error`** — something blocked execution (missing input, unrunnable environment). Includes a `note=` explaining what blocked.
+
+## Failback: when and why
+
+A worker fails back when continuing would require it to do something it must not do autonomously:
+
+- The goal cannot be met without violating a standing invariant in the component's design.
+- Achieving the goal requires adding a new dependency, introducing an architectural change, or editing files outside the component's own scope.
+- The pinned contract is wrong or insufficient for what the goal actually requires.
+- The goal's minimal path requires scope expansion the orchestrator or human must approve.
+
+**`compromised`** is the specific status used when any of these apply. The worker stops immediately, reports `failback | ... | note=compromised:<one-line why> | suggested=<shape or approach needed>`, and returns. It never improvises around the problem, silently breaks an invariant, or absorbs an out-of-scope change.
+
+The orchestrator receives the failback, re-pins the contract from the `suggested=` field, and re-dispatches the affected component. Only a break in assumptions, decisions, or design escalates to the human.
+
+## Constraints
+
+The component agent enforces these rules unconditionally in every run:
+
+- **One component per worker** — edit only files under `<component_path>` (code, tests, and its own `DESIGN.md`) and the throwaway spec under `tmp/<run_id>/<component_name>/`.
+- **Never commits** — no `git` operations of any kind. Commit authority belongs to the human at the orchestrator's commit gate.
+- **Never touches shared or repo-level docs** — the decisions-log, improvements-log, architecture docs, runbooks, and root README are the orchestrator's to write at fan-in. A worker that writes them is breaking Document Ownership.
+- **Plan mode writes nothing** — no spec, no test, no code, no DESIGN.md edit. Assess only.
+- **Design first, tests from design, code test-first** — design doc is validated before any code is written; tests are derived from the design before implementation begins.
+- **Contract is immutable** — conform (consumer) or expose exactly (producer). If the contract is wrong, fail back. Diverging is the one failure that breaks the whole pattern.
+- **Self-contained** — no orchestrator memory, no human channel. If blocked, fail back or error with a clear note.
+
+<Note>
+  The `dtdd-component` agent is dispatched by the orchestrator — it is not meant to be invoked directly. Inputs arrive via the orchestrator's dispatch call; running the agent without those inputs produces an immediate `error | status=error | note=no goal`.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="The Loop" icon="rotate" href="/workflow/the-loop">
+    The full 8-step Worker DTDD loop each component agent runs in execute mode.
+  </Card>
+  <Card title="Orchestration" icon="diagram-project" href="/workflow/orchestration">
+    How the orchestrator dispatches workers and handles failbacks across seams.
+  </Card>
+  <Card title="Design-Sync Agent" icon="shield-check" href="/reference/design-sync-agent">
+    The independent reviewer that checks DESIGN.md↔code fidelity before every commit.
+  </Card>
+  <Card title="/dtdd skill" icon="terminal" href="/reference/dtdd-skill">
+    The orchestrator skill that plans, dispatches, fans in, and holds the commit gate.
+  </Card>
+</CardGroup>

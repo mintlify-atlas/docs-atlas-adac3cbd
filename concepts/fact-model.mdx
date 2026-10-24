@@ -1,0 +1,84 @@
+---
+title: "The Fact Model: Present-State Truth in Two Tiers"
+sidebarTitle: "Fact Model"
+description: "How DTDD defines present-state truth, why it is split into Component and Repo tiers, and the two properties that make it a substrate agents can trust."
+---
+
+The Fact model is the central idea the entire DTDD methodology serves. It holds that every repository has a single living present-state truth — the Fact — made up of design docs plus code. Every task either reads that Fact or deliberately evolves it. This page explains what the Fact is, how it is structured into two tiers, what makes it usable by agents, and why Fact and Narrative must be kept strictly apart.
+
+## Two Tiers of the Fact
+
+The Fact is not a single document — it is held in two complementary tiers, each covering truth that the other cannot.
+
+<CardGroup cols={2}>
+  <Card title="Component Fact" icon="file-lines">
+    Each component's `DESIGN.md`: its contract, mechanism, and invariants. One document per component, one fixed twelve-section template. The truth about what this unit does, how it works, and what must remain true of it.
+  </Card>
+  <Card title="Repo Fact" icon="sitemap">
+    The cross-component truth no single `DESIGN.md` can hold: architecture, data model, business flows, shared schemas. Lives in the repo's shared doc tier and is read by orchestrators planning multi-component changes.
+  </Card>
+</CardGroup>
+
+Both tiers are **present-state only**. A change may touch either or both. The methodology's job is to keep both honest and to evolve them without corruption — which is exactly what the worker loop's read-first/write-last discipline and the design-sync gate enforce on every commit.
+
+## Two Properties That Make the Fact Usable
+
+A repo that happens to have design docs is not the same as a repo with a Fact. Two structural properties make the difference.
+
+### 1. The Fact Is the Substrate
+
+An agent working on a component reads that component's `DESIGN.md` **before** anything else. An orchestrator planning a repo-wide change reads design documents only — never code internals. Docs, not code, are the bounded context that agents reason from.
+
+This is Ideology 4 in practice: the orchestrator is forbidden from reading a component's internals. If the orchestrator needs to know something about a component, it asks that component's agent in plan mode. If the answer isn't in the design doc, the correct move is to fix the design doc — not to peek at the source.
+
+### 2. The Fact Is Load-Bearing
+
+Because the pre-commit gate blocks commits whose docs have drifted from their code, an agent can *trust* what it reads. A Fact nobody enforces is just documentation — and documentation rots. The stamp-gated design-sync check is what converts a design doc from a suggestion into a structural guarantee.
+
+<Note>
+Every agent task begins by reading the relevant design doc. Component workers read the component's `DESIGN.md` before touching code; orchestrators read architecture and flow docs before planning any cross-component work. Reading the Fact is not optional — it is the first step of the loop.
+</Note>
+
+## Fact vs Narrative
+
+The Fact is strictly separate from the Narrative. This distinction — Ideology 2 — is the most operationally important rule in the methodology.
+
+**The Fact** (design docs) describes the component as it currently is: present tense, no history, no changelog verbs, no dates. It is what is true *now*.
+
+**The Narrative** (the logs) records the story of change over time: decisions made, improvements tracked, open questions resolved. It is what *happened* on the way to now.
+
+These are two different documents, never merged. A design doc that accretes history — "we replaced the old queue with a direct call because…" — stops describing the system and starts describing its own past. Every future edit must then decide whether to also update the historical record it contains. Most don't. That is how docs rot.
+
+A design doc that only ever states the present needs no such judgment call: the last edit is always correct, because it never claimed to describe anything but the current moment. This is what lets an agent trust a `DESIGN.md` it has never seen before, without independently verifying every sentence against git history first.
+
+For the full treatment of how decisions and improvements logs are structured and maintained separately from the Fact, see [The Logs](/concepts/the-logs).
+
+## Lifecycle-Aware Dependency Direction
+
+A permanent artifact must never point at a transient one (Ideology 3). This rule follows directly from the Fact model.
+
+`DESIGN.md` files are permanent — they exist for the life of the component. Improvements-log entries, run IDs, ticket numbers, and seam IDs are transient — expected to be deleted or superseded. If a permanent doc depends on a transient artifact for its meaning, it is guaranteed to dangle the moment that artifact is cleaned up.
+
+The rule has three concrete forms:
+- A `DESIGN.md` sentence must read correctly even if the improvements-log entry it references is later deleted — state the limitation self-contained in the present.
+- The decisions-log never cites an improvements-log entry as the basis for a decision.
+- No run IDs, seam IDs, or ticket IDs appear in code or in any design doc.
+
+This is why the Fact always contains current facts, not provenance. A doc that depends on a transient run for its meaning stops being self-contained the moment that run is forgotten. A permanent doc must read correctly on its own, indefinitely.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Design Docs" icon="file-contract" href="/concepts/design-docs">
+    The Component Fact in detail: the fixed twelve-section template, explicit-absence rules, and the read-first/write-last timing discipline.
+  </Card>
+  <Card title="Repo Docs" icon="map" href="/concepts/repo-docs">
+    The Repo Fact tier: architecture, data model, and business flow documents that orchestrators use as their bounded context.
+  </Card>
+  <Card title="The Logs" icon="scroll" href="/concepts/the-logs">
+    How the decisions-log and improvements-log carry the Narrative — history that must never appear inside a design doc.
+  </Card>
+  <Card title="Review Gates" icon="shield-check" href="/workflow/review-gates">
+    The stamp-gated pre-commit hook that makes the Fact load-bearing by blocking any commit where docs have drifted from code.
+  </Card>
+</CardGroup>
