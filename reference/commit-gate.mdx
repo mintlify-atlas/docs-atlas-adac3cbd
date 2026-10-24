@@ -1,5 +1,5 @@
 ---
-title: "Commit Gate: Stamp-Enforced Pre-Commit Hook"
+title: "Commit Gate: Stamp-Enforced Pre-Commit Hook for DTDD"
 sidebarTitle: "Commit Gate"
 description: "How the design-sync-gate.sh PreToolUse hook intercepts git commit in DTDD-adopted repos, consumes a single-use stamp, and blocks unreviewed commits."
 ---
@@ -51,7 +51,7 @@ The hook receives the full tool input as JSON on stdin. The 30-second timeout is
   <Step title="Check DTDD adoption scope">
     The gate is installed globally in the Claude Code plugin, which means it fires for every project the plugin is active in. To avoid gating repos that have nothing to do with DTDD, the hook checks for the scaffold marker file created by `/dtdd-init`:
 
-    ```
+    ```text
     <repo-root>/docs/templates/DESIGN.template.md
     ```
 
@@ -89,7 +89,7 @@ Internal errors fail open so a broken hook cannot silently block every commit in
 
 The stamp is a single-use token that proves the design-sync agent completed a clean run.
 
-```
+```text
 design-sync agent runs →
   verifies / fixes DESIGN.md files →
     writes <git-dir>/.design-sync-stamp   ← only the agent may create this
@@ -122,6 +122,7 @@ The test covers:
 - **Stamp consumed** — stamp file is absent after the passing run
 - **Compound command** — `git status && git commit -m x` exits 2
 - **`git -c k=v commit` detection** — exits 2 (no stamp)
+- **Non-git command passthrough** — `ls -la` in a DTDD repo exits 0
 - **Non-commit git command** — `git log --oneline` exits 0
 
 All ten checks must pass for the test to exit 0.

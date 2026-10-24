@@ -1,5 +1,5 @@
 ---
-title: "dtdd-component: Per-Component DTDD Worker Agent"
+title: "dtdd-component: The Per-Component DTDD Worker Agent"
 sidebarTitle: "Component Agent"
 description: "Worker agent for one component — runs the 8-step DTDD loop in plan or execute mode, never commits, and never writes shared or repo-level docs."
 ---
@@ -75,12 +75,11 @@ Three alternative statuses are possible instead of `done`:
 
 ## Failback: when and why
 
-A worker fails back when continuing would require it to do something it must not do autonomously:
+A worker fails back when the goal is **compromised** — any one of three conditions applies:
 
 - The goal cannot be met without violating a standing invariant in the component's design.
-- Achieving the goal requires adding a new dependency, introducing an architectural change, or editing files outside the component's own scope.
-- The pinned contract is wrong or insufficient for what the goal actually requires.
-- The goal's minimal path requires scope expansion the orchestrator or human must approve.
+- When `seam_role` is `producer` or `consumer`, the pinned contract is wrong or insufficient for what the goal actually requires.
+- The goal cannot be met within this component's stated scope without introducing a new dependency, an architectural change, or edits beyond what was asked.
 
 **`compromised`** is the specific status used when any of these apply. The worker stops immediately, reports `failback | ... | note=compromised:<one-line why> | suggested=<shape or approach needed>`, and returns. It never improvises around the problem, silently breaks an invariant, or absorbs an out-of-scope change.
 

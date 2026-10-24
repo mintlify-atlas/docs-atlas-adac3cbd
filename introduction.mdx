@@ -1,5 +1,5 @@
 ---
-title: "DTDD: Keep Agent Design Docs Permanently True"
+title: "DTDD: AI Agent Design Docs That Stay Permanently True"
 sidebarTitle: "Introduction"
 description: "DTDD solves context rot in AI coding agents by making design docs load-bearing — gated, enforced, and always describing the present state of your code."
 ---
@@ -49,7 +49,7 @@ Memory layers and RAG can still sit on top of a DTDD repo — DTDD is what makes
 
 ## Three-tier orchestration
 
-DTDD uses self-similar orchestration at three levels. Your session becomes the **Principal Orchestrator** the moment you type `/dtdd-goal <spec>`. The Principal decomposes the spec into stages and drives `/dtdd` once per implementation stage. Each `/dtdd` run instantiates the **DTDD Orchestrator** for that stage; it oversees reads design docs, dispatches component workers, and fans in — it never writes component code. **Component agents** (`dtdd-component` workers) do the implementing, one per affected component, via an eight-step loop. Finally, the **design-sync reviewer** runs in a fresh context before every commit to verify docs and code match.
+DTDD uses self-similar orchestration at three levels. Your session becomes the **Principal Orchestrator** the moment you type `/dtdd-goal <spec>`. The Principal decomposes the spec into stages and drives `/dtdd` once per implementation stage. Each `/dtdd` run instantiates the **DTDD Orchestrator** for that stage; it oversees the stage work — reads design docs, dispatches component workers, and fans in — but never writes component code. **Component agents** (`dtdd-component` workers) do the implementing, one per affected component, via an eight-step loop. Finally, the **design-sync reviewer** runs in a fresh context before every commit to verify docs and code match.
 
 Design questions climb — a component agent that hits a question it cannot answer from its own design doc fails back to the orchestrator, which answers from the stage plan. If the question breaks the stage's assumptions, it pops up to the Principal. Only a question that invalidates the overall goal reaches you — plus the commit gate, which reaches you every time.
 

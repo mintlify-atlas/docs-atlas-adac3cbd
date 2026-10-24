@@ -1,7 +1,7 @@
 ---
 title: "Non-Overlapping Review Lenses and the Stamp/Consume Gate"
 sidebarTitle: "Review Gates"
-description: "How DTDD structures review as many narrow, non-overlapping lenses — each declaring what it does NOT check — and enforces the doc-fidelity lens with a structural stamp/consume gate."
+description: "How DTDD uses narrow, non-overlapping review lenses — each declaring what it does NOT check — and enforces doc-fidelity with a stamp/consume gate."
 ---
 
 Reviewing a change is itself a design problem. A single reviewer that tries to cover doc fidelity, conventions, security, and correctness simultaneously ends up checking all of them shallowly — and when it stays silent, nobody can tell whether it checked security and found nothing or simply never got there. DTDD answers this with **many narrow lenses, each declaring what it does *not* check**, over one fuzzy reviewer. The declared boundary is not a disclaimer; it is the mechanism that prevents two lenses from both skipping a concern (a silent gap) or both claiming it (wasted, conflicting review).

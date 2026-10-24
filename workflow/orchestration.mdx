@@ -33,6 +33,7 @@ The orchestrator dispatches every candidate component's worker in **plan mode**,
 | `preserves` | Existing behavior the change must not break |
 | `risks` | New failure modes the change could introduce |
 | `contract_ok` | Whether the worker can expose or consume the proposed contract at a seam |
+| `status` | Overall report state — `ok`, `failback`, or `error` |
 
 **Contract pinning from plan reports.** The orchestrator folds every `preserves` item from the plan reports into the contract as an explicit pin. Each `risks` item becomes a test case the execute wave must add. A constant shared across components is pinned as a named export from the producer — never restated as a literal value in the contract, which would become an independent hardcoded copy in every worker.
 

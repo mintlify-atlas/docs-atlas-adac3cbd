@@ -1,7 +1,7 @@
 ---
-title: "Repo Fact: Cross-Component Truth in DTDD"
+title: "DTDD Repo Fact: Cross-Component Architecture Truth"
 sidebarTitle: "Repo Docs"
-description: "The Repo Fact tier holds everything that spans more than one component — architecture, shared schemas, business flows, and shared conventions — stated once and owned by the orchestrator."
+description: "The Repo Fact holds cross-component truth — architecture, shared data models, flows, and conventions — stated once and owned by the orchestrator."
 ---
 
 A component's `DESIGN.md` describes what that one unit does in isolation. It cannot describe how a payments service hands data to an email sender, what a shared message schema looks like across every consumer, or how a request flows end-to-end through five services. That cross-component truth is the **Repo Fact** — the second tier of the Fact model, sitting above every individual Component Fact. It exists so that facts which would otherwise be copied — and left to drift — across multiple components have exactly one home.

@@ -80,7 +80,8 @@ The following is the Rules & Invariants section from the Orderflow `services/pay
    as `pending`; it does not overwrite the row to `failed`. Why: "no response from
    the provider" is not the same fact as "the provider declined the charge" — the
    charge may have gone through on the provider's side even though the worker never
-   learned about it.
+   learned about it, and marking it `failed` would let a duplicate charge attempt
+   slip in later under the false belief that no charge exists yet.
 ```
 
 ---

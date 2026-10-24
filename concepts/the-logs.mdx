@@ -1,7 +1,7 @@
 ---
-title: "Decisions & Improvements: The Two DTDD Logs"
+title: "DTDD Logs: Decisions History and Improvements Tracking"
 sidebarTitle: "The Logs"
-description: "History lives in two logs beside the Fact — not inside it. The decisions log is permanent and append-only; the improvements log is transient and deletes entries on resolution."
+description: "Two logs live beside the Fact: the permanent append-only decisions log and the transient improvements log whose entries delete on resolution."
 ---
 
 The Fact is present-state only. A `DESIGN.md` describes what a component *is*, never what it *used to be*. But history has to live somewhere, or it is simply lost. It lives beside the Fact, in two logs — and those two logs are not interchangeable. They have different lifetimes, different rules, and a strict dependency direction that keeps permanent records from rotting when transient ones disappear.
